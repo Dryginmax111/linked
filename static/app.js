@@ -1360,11 +1360,11 @@ function initMain() {
     const catWrapperForDrag = $('userCategoriesList');
     if (catWrapperForDrag) {
         catWrapperForDrag.addEventListener('click', function(e) {
-            if (_catDragJustEnded) {
-                e.stopPropagation(); e.preventDefault();
-                _catDragJustEnded = false;
-            }
-        }, true);
+			if (_catDragJustEnded || window.__catDragJustEnded) {
+				e.stopPropagation(); e.preventDefault();
+				_catDragJustEnded = false; window.__catDragJustEnded = false;
+			}
+		}, true);
 		catWrapperForDrag.addEventListener('pointerdown', function(e) {
             if (e.button !== 0) return;
             const btn = e.target.closest('.cat-btn[data-cat-name]');
@@ -1430,6 +1430,7 @@ function initMain() {
                     _catDragJustEnded = true; window.__catDragJustEnded = true;
                     setTimeout(function() { _catDragJustEnded = false; window.__catDragJustEnded = false; }, 300);
                 }
+				else { _catDragJustEnded = false; window.__catDragJustEnded = false; }
                 dragged = null; started = false;
             }
             document.addEventListener('pointermove', onMove);
