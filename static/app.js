@@ -357,7 +357,7 @@ function buildFilterIndex() {
                 group: group, cardCats: cardCats,
                 link: (linkDisplay ? linkDisplay.textContent : '').toLowerCase(),
                 fullLink: (smartLink ? smartLink.getAttribute('data-full-link') : '').toLowerCase(),
-                desc: (descEl ? descEl.getAttribute('data-original') : '').toLowerCase(),
+                desc: ((descEl && descEl.getAttribute('data-original')) || '').toLowerCase(),
                 cat: (li.getAttribute('data-category') || '').toLowerCase(),
                 tags: (li.getAttribute('data-tags') || '').toLowerCase().split(',').filter(Boolean),
                 updated: li.getAttribute('data-updated') || '',

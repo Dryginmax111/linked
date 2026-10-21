@@ -1,0 +1,59 @@
+2026-10-21 18:46:57 [INFO   ] reestr | Сгенерирован новый secret_key: .flask_secret
+2026-10-21 18:46:57 [INFO   ] reestr | [STORAGE] Backend=xlsx, file=/workspace/реестр.xlsx
+2026-10-21 18:46:57 [INFO   ] reestr | ============================================================
+2026-10-21 18:46:57 [INFO   ] reestr | РЕЕСТР ПОЛЕЗНЫХ ССЫЛОК
+2026-10-21 18:46:57 [INFO   ] reestr | ============================================================
+2026-10-21 18:46:57 [INFO   ] reestr | Рабочая папка: /workspace
+2026-10-21 18:46:57 [INFO   ] reestr | Storage: xlsx
+2026-10-21 18:46:57 [INFO   ] reestr | XLSX: /workspace/реестр.xlsx
+2026-10-21 18:46:57 [INFO   ] reestr | Debug: выкл (REESTR_DEBUG=1)
+2026-10-21 18:46:57 [INFO   ] reestr | Разрешённые Origin: http://127.0.0.1:5432, http://localhost:5432, http://[::1]:5432
+2026-10-21 18:46:57 [INFO   ] reestr | Плагинов загружено: 17
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ autotag v1.0 — Авто-теги по домену ссылки
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ duplicate_checker v1.0 — Проверка дубликатов URL
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ example_logger v2.0 — Подробный лог всех событий реестра (log + jsonl)
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ example_telegram v1.0 — Пример отправки уведомлений в Telegram
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ export_csv v1.0 — Экспорт в CSV
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ export_html v1.0 — Экспорт в статический HTML-файл
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ export_json v1.0 — Экспорт в JSON
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ export_xlsx v1.0 — Экспорт в XLSX
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ import_bookmarks v1.0 — Импорт закладок из браузера
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ import_pocket v1.0 — Импорт ссылок из Pocket
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ import_xlsx v1.0 — Импорт записей из XLSX
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ link_checker v1.0 — Проверка статуса ссылок (HEAD)
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ logger_json v2.0 — Расширенный журнал действий: фильтры, экспорт, статистика
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ stats_basic v1.0 — Статистика: топ, активность, тепловая карта
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ themes_builtin v1.0 — Список встроенных тем
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ themes_user v3.0 — Редактор пользовательских тем с цветовой иконкой
+2026-10-21 18:46:57 [INFO   ] reestr |   ✓ trash_soft v2.0 — Корзина с восстановлением и автоочисткой (30 дней)
+2026-10-21 18:46:57 [INFO   ] reestr | ============================================================
+2026-10-21 19:05:41 [INFO   ] reestr | [STORAGE] Backend=xlsx, file=/workspace/реестр.xlsx
+2026-10-21 19:05:41 [INFO   ] reestr | ============================================================
+2026-10-21 19:05:41 [INFO   ] reestr | РЕЕСТР ПОЛЕЗНЫХ ССЫЛОК
+2026-10-21 19:05:41 [INFO   ] reestr | ============================================================
+2026-10-21 19:05:41 [INFO   ] reestr | Рабочая папка: /workspace
+2026-10-21 19:05:41 [INFO   ] reestr | Storage: xlsx
+2026-10-21 19:05:41 [INFO   ] reestr | XLSX: /workspace/реестр.xlsx
+2026-10-21 19:05:41 [INFO   ] reestr | Debug: выкл (REESTR_DEBUG=1)
+2026-10-21 19:05:41 [INFO   ] reestr | Разрешённые Origin: http://127.0.0.1:5432, http://localhost:5432, http://[::1]:5432
+2026-10-21 19:05:41 [INFO   ] reestr | Плагинов загружено: 17
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ autotag v1.0 — Авто-теги по домену ссылки
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ duplicate_checker v1.0 — Проверка дубликатов URL
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ example_logger v2.0 — Подробный лог всех событий реестра (log + jsonl)
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ example_telegram v1.0 — Пример отправки уведомлений в Telegram
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ export_csv v1.0 — Экспорт в CSV
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ export_html v1.0 — Экспорт в статический HTML-файл
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ export_json v1.0 — Экспорт в JSON
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ export_xlsx v1.0 — Экспорт в XLSX
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ import_bookmarks v1.0 — Импорт закладок из браузера
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ import_pocket v1.0 — Импорт ссылок из Pocket
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ import_xlsx v1.0 — Импорт записей из XLSX
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ link_checker v1.0 — Проверка статуса ссылок (HEAD)
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ logger_json v2.0 — Расширенный журнал действий: фильтры, экспорт, статистика
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ stats_basic v1.0 — Статистика: топ, активность, тепловая карта
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ themes_builtin v1.0 — Список встроенных тем
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ themes_user v3.0 — Редактор пользовательских тем с цветовой иконкой
+2026-10-21 19:05:41 [INFO   ] reestr |   ✓ trash_soft v2.0 — Корзина с восстановлением и автоочисткой (30 дней)
+2026-10-21 19:05:41 [INFO   ] reestr | ============================================================
+2026-10-21 19:05:41 [INFO   ] reestr | Завершение работы...
+2026-10-21 19:05:41 [INFO   ] reestr | Сервер остановлен.

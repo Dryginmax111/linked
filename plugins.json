@@ -1,0 +1,116 @@
+{
+  "autotag": {
+    "rules": {
+      "github.com": [
+        "github",
+        "code"
+      ],
+      "gitlab.com": [
+        "gitlab",
+        "code"
+      ],
+      "bitbucket.org": [
+        "bitbucket",
+        "code"
+      ],
+      "stackoverflow.com": [
+        "stackoverflow",
+        "qa"
+      ],
+      "stackexchange.com": [
+        "stackexchange",
+        "qa"
+      ],
+      "docs.google.com": [
+        "google",
+        "docs"
+      ],
+      "drive.google.com": [
+        "google",
+        "drive"
+      ],
+      "mail.google.com": [
+        "google",
+        "mail"
+      ],
+      "youtube.com": [
+        "youtube",
+        "video"
+      ],
+      "youtu.be": [
+        "youtube",
+        "video"
+      ],
+      "reddit.com": [
+        "reddit",
+        "social"
+      ],
+      "twitter.com": [
+        "twitter",
+        "social"
+      ],
+      "x.com": [
+        "twitter",
+        "social"
+      ],
+      "habr.com": [
+        "habr",
+        "article"
+      ],
+      "medium.com": [
+        "medium",
+        "article"
+      ],
+      "wikipedia.org": [
+        "wiki"
+      ],
+      "notion.so": [
+        "notion",
+        "docs"
+      ],
+      "figma.com": [
+        "figma",
+        "design"
+      ],
+      "trello.com": [
+        "trello",
+        "tasks"
+      ],
+      "jira.atlassian.com": [
+        "jira",
+        "tasks"
+      ],
+      "confluence.atlassian.com": [
+        "confluence",
+        "docs"
+      ],
+      "atlassian.net": [
+        "atlassian"
+      ],
+      "pypi.org": [
+        "pypi",
+        "python"
+      ],
+      "npmjs.com": [
+        "npm",
+        "js"
+      ],
+      "docker.com": [
+        "docker"
+      ],
+      "hub.docker.com": [
+        "docker"
+      ],
+      "localhost": [
+        "local"
+      ],
+      "127.0.0.1": [
+        "local"
+      ]
+    }
+  },
+  "example_telegram": {
+    "token": "",
+    "chat_id": ""
+  }
+}
