@@ -1,0 +1,2862 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Реестр полезных ссылок</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg-start: #0b1a2e; --bg-mid: #1b3a5c; --bg-end: #2a4b6e;
+            --page-bg: linear-gradient(145deg, #0b1a2e 0%, #1b3a5c 50%, #2a4b6e 100%);
+            --text-color: #e8edf3;
+            --card-bg: rgba(255,255,255,0.06);
+            --card-border: rgba(255,255,255,0.07);
+            --card-hover-border: rgba(255,215,0,0.25);
+            --input-bg: rgba(255,255,255,0.06);
+            --input-border: rgba(255,255,255,0.15);
+            --input-focus-border: #f5d76e;
+            --form-section-bg: rgba(255,255,255,0.08);
+            --glass-bg: rgba(15, 26, 46, 0.55);
+            --link-color: #cfe2f2; --link-hover: #f5d76e;
+            --meta-color: #7a9ab5; --desc-color: #9ab8d0;
+            --tag-color: #f5d76e; --tag-bg: rgba(245,215,110,0.15);
+            --filter-btn-color: #b6d0e5;
+            --filter-btn-border: rgba(255,255,255,0.15);
+            --filter-btn-active-bg: rgba(245,215,110,0.15);
+            --filter-btn-active-color: #f5d76e;
+            --action-color: #8aadc8;
+            --btn-gradient: linear-gradient(135deg, #f5d76e, #f39c12);
+            --btn-text: #0b1a2e;
+            --modal-bg: #1b3a5c;
+            --modal-border: rgba(255,255,255,0.1);
+            --shadow: 0 8px 32px rgba(0,0,0,0.2);
+            --favorite-bg: rgba(241,196,15,0.10);
+            --favorite-bg-hover: rgba(241,196,15,0.16);
+            --favorite-border: #f1c40f;
+            --mark-bg: rgba(245,215,110,0.5);
+            --sidebar-width: 260px; --sidebar-gap: 20px;
+            --blur-card: 10px; --blur-sidebar: 12px;
+            --radius-card: 16px;
+            --accent: #f5d76e; --accent-2: #f39c12;
+            --shimmer-1: #f5d76e; --shimmer-2: #f39c12;
+            --title-grad-1: #f5d76e; --title-grad-2: #f39c12;
+            --link-row-hover: rgba(255,255,255,0.04);
+            --status-ok: #2ecc71;
+            --status-warn: #f1c40f;
+            --status-error: #e74c3c;
+            --status-unknown: #7a9ab5;
+            --mesh-bg-1: #f5d76e;
+            --mesh-bg-2: #f39c12;
+            --mesh-bg-3: #e91e63;
+            --shimmer-speed: 1;
+            --shimmer-intensity: 1;
+            --link-text-indent: 76px;
+            font-size: 14px;
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(128,128,128,0.35) transparent;
+        }
+        *::-webkit-scrollbar { width: 8px; height: 8px; }
+        *::-webkit-scrollbar-track { background: transparent; }
+        *::-webkit-scrollbar-thumb {
+            background: rgba(128,128,128,0.3);
+            border-radius: 4px;
+        }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
+        body.theme-light *::-webkit-scrollbar-thumb,
+        body.theme-ios-glass *::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); }
+        body.theme-light { color-scheme: light; }
+        body.theme-ios-glass { color-scheme: light; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            min-height: 100vh;
+            background: var(--page-bg);
+            background-attachment: fixed;
+            background-size: cover;
+            background-position: center;
+            padding: 20px 15px;
+            color: var(--text-color);
+            transition: color 0.3s ease;
+            font-size: 1.4rem;
+        }
+        body.mesh-bg-on::before {
+            content: '';
+            position: fixed;
+            inset: -50%;
+            z-index: -1;
+            background:
+                radial-gradient(circle at 20% 30%, var(--mesh-bg-1) 0%, transparent 40%),
+                radial-gradient(circle at 80% 20%, var(--mesh-bg-2) 0%, transparent 40%),
+                radial-gradient(circle at 50% 80%, var(--mesh-bg-3) 0%, transparent 45%);
+            opacity: 0.25;
+            filter: blur(60px);
+            animation: meshFloat 22s ease-in-out infinite;
+            pointer-events: none;
+        }
+        body.mesh-bg-on { background-attachment: fixed; }
+        @keyframes meshFloat {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33%      { transform: translate(40px, -30px) scale(1.1); }
+            66%      { transform: translate(-30px, 40px) scale(0.95); }
+        }
+
+        /* ============================================================
+           ВАРИАНТЫ АНИМИРОВАННОГО ФОНА
+           ============================================================ */
+        body.mesh-style-pulse::before { animation: meshPulse 6s ease-in-out infinite; }
+        @keyframes meshPulse {
+            0%, 100% { transform: scale(0.9); opacity: 0.18; }
+            50%      { transform: scale(1.15); opacity: 0.35; }
+        }
+
+        body.mesh-style-rotate::before { animation: meshRotate 40s linear infinite; }
+        @keyframes meshRotate {
+            0%   { transform: rotate(0deg) scale(1.05); }
+            100% { transform: rotate(360deg) scale(1.05); }
+        }
+
+        body.mesh-style-wave::before { animation: meshWave 14s linear infinite; }
+        @keyframes meshWave {
+            0%   { transform: translateX(-8%) scale(1); }
+            50%  { transform: translateX(8%) scale(1.08); }
+            100% { transform: translateX(-8%) scale(1); }
+        }
+
+        body.mesh-style-orbit::before { animation: meshOrbit 18s linear infinite; }
+        @keyframes meshOrbit {
+            0%   { transform: translate(0, 0) rotate(0deg); }
+            25%  { transform: translate(40px, -40px) rotate(90deg); }
+            50%  { transform: translate(0, 0) rotate(180deg); }
+            75%  { transform: translate(-40px, 40px) rotate(270deg); }
+            100% { transform: translate(0, 0) rotate(360deg); }
+        }
+
+        body.mesh-style-flash::before { animation: meshFlash 8s ease-in-out infinite; }
+        @keyframes meshFlash {
+            0%, 55%, 100% { opacity: 0.15; transform: scale(1); }
+            60%           { opacity: 0.55; transform: scale(1.15); }
+            70%           { opacity: 0.5;  transform: scale(1.12); }
+        }
+
+        body.mesh-style-aurora::before {
+            background:
+                radial-gradient(ellipse 60% 40% at 20% 20%, var(--mesh-bg-1) 0%, transparent 55%),
+                radial-gradient(ellipse 60% 40% at 80% 30%, var(--mesh-bg-2) 0%, transparent 55%),
+                radial-gradient(ellipse 50% 40% at 50% 80%, var(--mesh-bg-3) 0%, transparent 60%),
+                radial-gradient(ellipse 40% 30% at 90% 70%, var(--mesh-bg-1) 0%, transparent 60%);
+            filter: blur(80px) saturate(130%);
+            opacity: 0.35;
+            animation: meshAurora 28s ease-in-out infinite;
+        }
+        @keyframes meshAurora {
+            0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+            25%      { transform: translate(6%, -4%) rotate(3deg) scale(1.1); }
+            50%      { transform: translate(-5%, 5%) rotate(-2deg) scale(0.94); }
+            75%      { transform: translate(4%, 6%) rotate(2deg) scale(1.05); }
+        }
+
+        mark { background: var(--mark-bg); color: inherit; padding: 0 2px; border-radius: 3px; }
+        button { font-family: inherit; }
+
+        /* ============================================================
+           АНИМАЦИЯ ПОЯВЛЕНИЯ КАРТОЧЕК
+           ============================================================ */
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        body.page-ready .card {
+            animation: cardIn 0.35s ease backwards;
+        }
+        body.page-ready .card:nth-child(1) { animation-delay: 0.00s; }
+        body.page-ready .card:nth-child(2) { animation-delay: 0.03s; }
+        body.page-ready .card:nth-child(3) { animation-delay: 0.06s; }
+        body.page-ready .card:nth-child(4) { animation-delay: 0.09s; }
+        body.page-ready .card:nth-child(5) { animation-delay: 0.12s; }
+        body.page-ready .card:nth-child(6) { animation-delay: 0.15s; }
+        body.page-ready .card:nth-child(7) { animation-delay: 0.18s; }
+        body.page-ready .card:nth-child(8) { animation-delay: 0.21s; }
+        body.page-ready .card:nth-child(9) { animation-delay: 0.24s; }
+        body.page-ready .card:nth-child(10) { animation-delay: 0.27s; }
+        body.page-ready .card:nth-child(n+11) { animation-delay: 0.30s; }
+        @media (prefers-reduced-motion: reduce) {
+            body.page-ready .card { animation: none; }
+        }
+
+        .app-container {
+            max-width: 1600px; margin: 0 auto;
+            display: flex; width: 100%;
+            align-items: flex-start;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width); min-width: var(--sidebar-width);
+            margin-right: var(--sidebar-gap); flex-shrink: 0;
+            background: var(--form-section-bg);
+            backdrop-filter: blur(var(--blur-sidebar));
+            -webkit-backdrop-filter: blur(var(--blur-sidebar));
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-card);
+            padding: 16px 14px;
+            position: sticky; top: 20px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            transition: width 0.3s ease, min-width 0.3s ease, margin-right 0.3s ease,
+                        padding 0.3s ease, opacity 0.25s ease, border-width 0.3s ease,
+                        background 0.4s ease, border-color 0.4s ease;
+            box-shadow: var(--shadow);
+        }
+        .sidebar.collapsed {
+            width: 0; min-width: 0; margin-right: 0; padding: 0;
+            border-width: 0; opacity: 0; overflow: hidden; pointer-events: none;
+        }
+        .sidebar-header {
+            display: flex; align-items: center; gap: 10px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--card-border);
+            margin-bottom: 12px;
+            white-space: nowrap;
+        }
+        .logo {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px; height: 34px;
+            flex-shrink: 0;
+            filter: drop-shadow(0 0 6px var(--shimmer-1));
+            animation: logoPulse 4s ease-in-out infinite;
+            transition: transform 0.35s ease;
+        }
+        .logo:hover { transform: scale(1.12) rotate(8deg); }
+        .logo-svg { width: 100%; height: 100%; display: block; }
+        @keyframes logoPulse {
+            0%, 100% { filter: drop-shadow(0 0 5px var(--shimmer-1)); }
+            50%      { filter: drop-shadow(0 0 14px var(--shimmer-2)); }
+        }
+        .logo-text {
+            font-size: 1.1rem; font-weight: 700; flex: 1;
+            white-space: nowrap; overflow: hidden;
+            background: linear-gradient(135deg, var(--shimmer-1), var(--shimmer-2));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .profile-widget {
+            display: flex; align-items: center; gap: 6px;
+            cursor: pointer; padding: 2px 6px; border-radius: 10px;
+            transition: background 0.2s;
+            flex-shrink: 0;
+        }
+        .profile-widget:hover { background: var(--filter-btn-active-bg); }
+        .profile-avatar {
+            width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 0.8rem;
+            color: #0b1a2e; background: var(--accent);
+            box-shadow: 0 0 10px var(--accent);
+            transition: transform 0.2s;
+        }
+        .profile-widget:hover .profile-avatar { transform: scale(1.1); }
+        .sidebar-toggle {
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            cursor: pointer; padding: 3px 8px;
+            border-radius: 8px; font-size: 0.85rem;
+            transition: all 0.2s; flex-shrink: 0;
+        }
+        .sidebar-toggle:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .sidebar-content { display: flex; flex-direction: column; gap: 14px; }
+        .sidebar-section { display: flex; flex-direction: column; gap: 6px; }
+        .sidebar-label {
+            font-size: 0.7rem; font-weight: 700;
+            color: var(--meta-color);
+            text-transform: uppercase; letter-spacing: 1px;
+            padding: 4px 8px 6px; opacity: 0.7;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .section-toggle { cursor: pointer; user-select: none; transition: color 0.2s, opacity 0.2s; }
+        .section-toggle:hover { color: var(--filter-btn-active-color); opacity: 1; }
+        .section-chevron {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 12px; font-size: 0.6rem; line-height: 1; opacity: 0.75;
+            transition: transform 0.25s ease; flex-shrink: 0;
+        }
+        .sidebar-section.collapsed .section-chevron { transform: rotate(-90deg); }
+        .categories-section.collapsed #userCategoriesList { display: none; }
+
+        .sidebar-label .cat-sort-buttons {
+            margin-left: auto; display: flex; gap: 3px;
+        }
+        .cat-sort-btn, .cat-manage-btn {
+            background: transparent; border: 1px solid transparent;
+            color: var(--meta-color); cursor: pointer;
+            padding: 2px 6px; border-radius: 6px;
+            font-size: 0.75rem; line-height: 1;
+            transition: all 0.2s; opacity: 0.55;
+        }
+        .cat-sort-btn:hover, .cat-manage-btn:hover {
+            opacity: 1; background: var(--filter-btn-active-bg);
+            color: var(--filter-btn-active-color);
+        }
+        .cat-sort-btn.active {
+            opacity: 1; background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+            box-shadow: 0 0 8px var(--filter-btn-active-bg);
+        }
+        .cat-manage-btn { margin-left: 2px; }
+        #categoriesList, #userCategoriesList { display: flex; flex-direction: column; gap: 6px; }
+
+        /* ============================================================
+           СТРОКА КАТЕГОРИИ: кнопка + ▲ + ▼
+           ============================================================ */
+        .cat-row {
+            display: flex;
+            align-items: stretch;
+            gap: 4px;
+            width: 100%;
+        }
+        .cat-row .cat-btn { flex: 1 1 auto; min-width: 0; }
+        .cat-move-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            flex-shrink: 0;
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.6rem;
+            opacity: 0.35;
+            transition: all 0.2s;
+            padding: 0;
+        }
+        .cat-row:hover .cat-move-btn { opacity: 0.85; }
+        .cat-move-btn:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+            opacity: 1;
+        }
+
+        .cat-btn {
+            display: flex; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.02);
+            border: 1px solid transparent;
+            color: var(--filter-btn-color);
+            padding: 8px 12px; border-radius: 12px;
+            cursor: pointer; font-size: 0.95rem;
+            font-weight: 500; text-align: left;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 100%; min-width: 0;
+            position: relative; overflow: hidden;
+        }
+        body.theme-light .cat-btn,
+        body.theme-ios-glass .cat-btn { background: rgba(0,0,0,0.02); }
+        .cat-btn:hover {
+            background: rgba(255,255,255,0.06);
+            border-color: var(--filter-btn-border);
+            transform: translateX(3px);
+        }
+        .cat-btn.active {
+            background: linear-gradient(135deg, var(--filter-btn-active-bg) 0%, transparent 100%);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+            box-shadow: 0 0 20px var(--filter-btn-active-bg), inset 0 1px 0 rgba(255,255,255,0.06);
+            transform: translateX(3px);
+        }
+        .cat-btn.cat-btn-none .cat-name { font-style: italic; }
+        .cat-indicator {
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--cat-color, var(--accent));
+            box-shadow: 0 0 8px var(--cat-color, var(--accent)),
+                        inset 0 0 3px rgba(255,255,255,0.4);
+            flex-shrink: 0; transition: all 0.25s; position: relative;
+        }
+        .cat-indicator::before {
+            content: ''; position: absolute; inset: 2px;
+            border-radius: 50%; background: rgba(255,255,255,0.4); opacity: 0.5;
+        }
+        .cat-btn:hover .cat-indicator { transform: scale(1.25); }
+        .cat-btn.active .cat-indicator { transform: scale(1.4); }
+        .cat-btn .cat-name {
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            flex: 1; min-width: 0; letter-spacing: 0.2px;
+        }
+        .cat-btn .badge {
+            background: rgba(255,255,255,0.12); border-radius: 20px;
+            min-width: 24px; padding: 2px 8px; text-align: center;
+            font-size: 0.7rem; font-weight: 700; line-height: 1.3; flex-shrink: 0;
+            font-variant-numeric: tabular-nums; transition: all 0.2s;
+        }
+        body.theme-light .cat-btn .badge,
+        body.theme-ios-glass .cat-btn .badge { background: rgba(0,0,0,0.08); }
+        .cat-btn.active .badge {
+            background: var(--cat-color, var(--filter-btn-active-color));
+            color: #0b1a2e;
+            box-shadow: 0 0 10px var(--cat-color, var(--filter-btn-active-color));
+        }
+        body.theme-light .cat-btn.active .badge,
+        body.theme-ios-glass .cat-btn.active .badge { color: #fff; }
+
+        .cat-btn.dragging { opacity: 0.4; cursor: grabbing; }
+        .cat-btn.drag-over-top {
+            box-shadow: inset 0 3px 0 0 var(--filter-btn-active-color),
+                        0 0 12px var(--filter-btn-active-bg);
+        }
+        .cat-btn.drag-over-bottom {
+            box-shadow: inset 0 -3px 0 0 var(--filter-btn-active-color),
+                        0 0 12px var(--filter-btn-active-bg);
+        }
+
+        .tags-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px 12px;
+            border-top: 1px dashed var(--card-border);
+            background: transparent;
+            min-height: 48px;
+        }
+        .tags-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            flex: 1 1 auto;
+            min-width: 0;
+            max-height: 96px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .col-buttons-inline {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+            margin-left: auto;
+        }
+        .col-buttons-inline .col-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            padding: 4px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 30px;
+        }
+        .col-buttons-inline .col-btn:hover,
+        .col-buttons-inline .col-btn.active {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .col-buttons-inline .col-btn .col-bars {
+            display: flex; gap: 2px; height: 12px; align-items: flex-end;
+        }
+        .col-buttons-inline .col-btn .col-bar {
+            width: 2.5px; background: currentColor; border-radius: 1px; opacity: 0.9;
+        }
+
+        .tag-cloud-item {
+            display: inline-flex; align-items: center; gap: 3px;
+            background: var(--tag-bg);
+            color: var(--tag-color);
+            border: 1px solid var(--tag-bg);
+            padding: 3px 8px; border-radius: 12px;
+            font-size: 0.75rem; cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .tag-cloud-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 10px var(--tag-bg);
+            border-color: var(--tag-color);
+        }
+        .tag-cloud-item.active {
+            background: var(--tag-color);
+            color: #0b1a2e;
+            border-color: var(--tag-color);
+            box-shadow: 0 0 12px var(--tag-color);
+        }
+        .tag-cloud-item .tag-count {
+            font-size: 0.65rem; opacity: 0.75;
+            background: rgba(0,0,0,0.15);
+            padding: 0 5px; border-radius: 8px;
+        }
+
+        .sidebar-action {
+            display: flex; align-items: center; gap: 10px;
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            padding: 8px 12px; border-radius: 10px;
+            cursor: pointer; font-size: 0.95rem; font-weight: 500;
+            transition: all 0.25s;
+            width: 100%; text-align: left;
+            text-decoration: none; white-space: nowrap;
+            position: relative;
+        }
+        .sidebar-action:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+            transform: translateX(3px);
+        }
+        .sidebar-action.active {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .sidebar-action .sidebar-badge {
+            margin-left: auto;
+            background: var(--filter-btn-active-bg);
+            color: var(--filter-btn-active-color);
+            border-radius: 20px;
+            padding: 1px 8px;
+            font-size: 0.7rem; font-weight: 700;
+            min-width: 22px; text-align: center;
+        }
+        input[type="file"] { display: none; }
+
+        .hotkeys-panel {
+            display: flex; flex-direction: column; gap: 8px;
+            padding: 10px 12px;
+            background: rgba(0,0,0,0.15);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+        }
+        body.theme-light .hotkeys-panel,
+        body.theme-ios-glass .hotkeys-panel { background: rgba(255,255,255,0.35); }
+        .hotkey-row {
+            display: flex; align-items: center; gap: 10px;
+            font-size: 0.85rem; color: var(--filter-btn-color);
+        }
+        .hotkey-keys { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+        .hotkey-row kbd {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 22px; height: 22px; padding: 0 6px; border-radius: 5px;
+            background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+            border: 1px solid var(--filter-btn-border); border-bottom-width: 2px;
+            font-size: 0.7rem; font-weight: 700;
+            color: var(--filter-btn-active-color);
+        }
+        .hotkey-plus { opacity: 0.5; font-size: 0.75rem; font-weight: 700; }
+        .hotkey-desc { flex: 1; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .main-content {
+            flex: 1; min-width: 0;
+            display: flex; flex-direction: column; gap: 16px;
+        }
+
+        .sticky-header {
+            position: sticky; top: 20px; z-index: 20;
+            display: flex; flex-direction: column; gap: 0;
+            background: var(--glass-bg);
+            backdrop-filter: blur(28px) saturate(180%);
+            -webkit-backdrop-filter: blur(28px) saturate(180%);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow);
+            overflow: visible;
+            transition: background 0.4s, border-color 0.4s, box-shadow 0.4s;
+        }
+        .sticky-header::before {
+            content: ''; position: absolute; inset: 0; z-index: 1;
+            border-radius: var(--radius-card); padding: 1.5px;
+            background: linear-gradient(90deg, transparent 0%, transparent 38%,
+                        var(--shimmer-1) 47%, var(--shimmer-2) 53%,
+                        transparent 62%, transparent 100%);
+            background-size: 200% 100%; background-repeat: no-repeat;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            animation: headerShimmer 4s ease-in-out infinite;
+            opacity: 0.75; pointer-events: none;
+        }
+        .sticky-header::after {
+            content: ''; position: absolute; inset: 0; z-index: 0;
+            pointer-events: none; opacity: 0; transition: opacity 0.4s ease;
+        }
+        body.has-header-shimmer .sticky-header::after { will-change: transform, opacity; }
+        .sticky-header > * { position: relative; z-index: 2; }
+        @keyframes headerShimmer { 0% { background-position: 200% 0; } 100% { background-position: -100% 0; } }
+        body.header-shimmer-off .sticky-header::after { animation: none !important; opacity: 0 !important; }
+        body.header-shimmer-sweep .sticky-header::after {
+            background: linear-gradient(110deg, transparent 0%, transparent 38%, var(--shimmer-1) 46%, var(--shimmer-2) 54%, transparent 62%, transparent 100%);
+            background-size: 250% 100%; background-repeat: no-repeat;
+            filter: blur(12px); mix-blend-mode: screen;
+            opacity: calc(0.55 * var(--shimmer-intensity, 1));
+            animation: headerSweepMove calc(7s / var(--shimmer-speed, 1)) ease-in-out infinite;
+        }
+        @keyframes headerSweepMove { 0% { background-position: 220% 0; } 100% { background-position: -120% 0; } }
+        body.header-shimmer-shine .sticky-header::after {
+            background: linear-gradient(115deg, transparent 42%, var(--shimmer-1) 47%, #ffffff 50%, var(--shimmer-2) 53%, transparent 58%);
+            background-size: 320% 100%; background-repeat: no-repeat;
+            filter: blur(8px); mix-blend-mode: screen;
+            animation: headerShineFlash calc(6s / var(--shimmer-speed, 1)) ease-out infinite;
+        }
+        @keyframes headerShineFlash {
+            0%, 68% { opacity: 0; background-position: 240% 0; }
+            76% { opacity: calc(0.85 * var(--shimmer-intensity, 1)); background-position: 60% 0; }
+            86% { opacity: calc(0.85 * var(--shimmer-intensity, 1)); background-position: -40% 0; }
+            100% { opacity: 0; background-position: -110% 0; }
+        }
+        body.header-shimmer-breath .sticky-header::after {
+            background: radial-gradient(ellipse 80% 100% at 50% 50%, var(--shimmer-1) 0%, transparent 60%), radial-gradient(ellipse 100% 60% at 50% 50%, var(--shimmer-2) 0%, transparent 70%);
+            filter: blur(28px); mix-blend-mode: screen;
+            animation: headerBreath calc(7s / var(--shimmer-speed, 1)) ease-in-out infinite;
+        }
+        @keyframes headerBreath { 0%, 100% { opacity: 0; transform: scale(0.94); } 50% { opacity: calc(0.45 * var(--shimmer-intensity, 1)); transform: scale(1.03); } }
+        body.header-shimmer-wave .sticky-header::after {
+            background: linear-gradient(110deg, transparent 0%, transparent 28%, var(--shimmer-1) 42%, transparent 56%, transparent 100%), linear-gradient(110deg, transparent 0%, transparent 28%, var(--shimmer-2) 42%, transparent 56%, transparent 100%);
+            background-size: 200% 100%, 200% 100%; background-repeat: no-repeat, no-repeat;
+            filter: blur(14px); mix-blend-mode: screen;
+            opacity: calc(0.5 * var(--shimmer-intensity, 1));
+            animation: headerWaveMove calc(9s / var(--shimmer-speed, 1)) linear infinite;
+        }
+        @keyframes headerWaveMove { 0% { background-position: 200% 0, 300% 0; } 100% { background-position: -100% 0, 0% 0; } }
+        body.header-shimmer-aurora .sticky-header::after {
+            background: radial-gradient(circle 320px at 20% 30%, var(--shimmer-1) 0%, transparent 70%), radial-gradient(circle 300px at 80% 25%, var(--shimmer-2) 0%, transparent 70%), radial-gradient(circle 280px at 70% 75%, var(--shimmer-1) 0%, transparent 70%), radial-gradient(circle 320px at 25% 70%, var(--mesh-bg-3, #e91e63) 0%, transparent 72%), radial-gradient(circle 260px at 50% 50%, var(--shimmer-2) 0%, transparent 70%);
+            background-size: 200% 200%, 200% 200%, 200% 200%, 200% 200%, 200% 200%;
+            filter: blur(40px) saturate(140%); mix-blend-mode: screen;
+            opacity: calc(0.75 * var(--shimmer-intensity, 1));
+            animation: headerAuroraMove calc(16s / var(--shimmer-speed, 1)) ease-in-out infinite;
+        }
+        @keyframes headerAuroraMove {
+            0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+            25% { transform: translate(4%, -3%) scale(1.12) rotate(2deg); }
+            50% { transform: translate(-3%, 2%) scale(0.94) rotate(-1deg); }
+            75% { transform: translate(2%, 3%) scale(1.06) rotate(1deg); }
+        }
+        body.header-anim-off .sticky-header::before { animation: none !important; opacity: 0.35; background-position: 60% 0; }
+        body.card-shimmer-off .card-shimmer-frame { display: none !important; }
+
+        .page-header-card { position: relative; overflow: hidden; text-align: center; padding: 22px 26px 18px; background: transparent; border-bottom: 1px solid var(--card-border); }
+        .page-title {
+            display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 6px;
+            font-size: 2rem; font-weight: 700;
+            background: linear-gradient(135deg, var(--title-grad-1) 0%, var(--title-grad-2) 50%, var(--title-grad-1) 100%);
+            background-size: 200% 200%;
+            animation: gradientShift 8s ease infinite;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+            cursor: pointer;
+            user-select: none;
+            transition: transform 0.25s ease, filter 0.25s ease;
+        }
+        .page-title:hover {
+            transform: scale(1.015);
+            filter: brightness(1.15) drop-shadow(0 0 18px var(--title-grad-1));
+        }
+        .page-title:active {
+            transform: scale(0.985);
+        }
+        .page-title .title-icon { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; flex-shrink: 0; filter: drop-shadow(0 0 10px var(--title-grad-1)); animation: iconPulse 3s ease-in-out infinite; }
+        .page-title .title-icon svg { width: 100%; height: 100%; display: block; }
+        @keyframes gradientShift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+        @keyframes iconPulse { 0%, 100% { transform: scale(1) rotate(0deg); } 50% { transform: scale(1.08) rotate(-3deg); } }
+        .page-sub { display: flex; align-items: center; justify-content: center; gap: 12px; text-align: center; font-size: 0.85rem; color: var(--meta-color); opacity: 0.75; letter-spacing: 4px; text-transform: uppercase; }
+        .page-sub::before, .page-sub::after { content: ''; display: block; width: 60px; height: 1px; background: linear-gradient(90deg, transparent, var(--title-grad-1), transparent); opacity: 0.6; }
+        .page-hint { text-align: center; font-size: 0.7rem; color: var(--meta-color); opacity: 0.5; margin-top: 10px; font-style: italic; }
+        .settings-fab {
+            position: absolute; top: 16px; right: 16px;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: var(--form-section-bg);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            color: var(--text-color); cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.15rem;
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s, border-color 0.2s, color 0.2s;
+            z-index: 5;
+        }
+        .settings-fab:hover { transform: rotate(60deg) scale(1.1); background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+
+        .topbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; background: transparent; flex-wrap: wrap; }
+        .burger-btn { display: none; background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 4px 10px; border-radius: 8px; cursor: pointer; font-size: 1.1rem; flex-shrink: 0; }
+        .search-wrapper { flex: 1; position: relative; display: flex; align-items: center; min-width: 150px; }
+        .search-input { flex: 1; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 30px; padding: 8px 16px; color: var(--text-color); font-size: 1rem; outline: none; transition: all 0.25s; width: 100%; }
+        .search-input:focus { border-color: var(--input-focus-border); box-shadow: 0 0 0 3px var(--filter-btn-active-bg); }
+        .search-input::placeholder { color: var(--meta-color); opacity: 0.55; }
+        .search-history { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: var(--modal-bg); border: 1px solid var(--modal-border); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 4px; z-index: 100; display: none; }
+        .search-history.show { display: block; }
+        .search-history-header { padding: 6px 10px; font-size: 0.7rem; color: var(--meta-color); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; display: flex; justify-content: space-between; }
+        .search-history-header .clear-history { cursor: pointer; color: var(--filter-btn-color); font-size: 0.75rem; text-transform: none; letter-spacing: 0; }
+        .search-history-header .clear-history:hover { color: #e74c3c; }
+        .search-history button.history-item { display: block; width: 100%; background: transparent; border: none; color: var(--text-color); text-align: left; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-family: monospace; }
+        .search-history button.history-item:hover { background: var(--filter-btn-active-bg); color: var(--filter-btn-active-color); }
+        .sort-buttons-top { display: flex; gap: 4px; flex-shrink: 0; }
+        .sort-btn {
+            background: transparent; border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color); padding: 6px 12px; border-radius: 20px;
+            cursor: pointer; font-size: 1rem; transition: all 0.2s;
+            display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+        }
+        .sort-btn:hover, .sort-btn.active { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .sort-btn .sort-arrow { font-size: 0.7rem; opacity: 0.9; min-width: 8px; display: inline-block; }
+        .collapse-all-btn { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 6px 10px; border-radius: 20px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s; }
+        .collapse-all-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .custom-toolbar-btns { display: flex; gap: 4px; flex-shrink: 0; }
+        .custom-toolbar-btn { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 6px 10px; border-radius: 20px; cursor: pointer; font-size: 0.95rem; transition: all 0.2s; }
+        .custom-toolbar-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+
+        .fab-add {
+            position: fixed; right: 24px; bottom: 24px; z-index: 1500;
+            width: 60px; height: 60px; border-radius: 50%; border: none;
+            cursor: pointer; background: var(--btn-gradient); color: var(--btn-text);
+            font-size: 2rem; font-weight: 300;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .fab-add:hover { transform: scale(1.12) rotate(90deg); }
+        .fab-add:active { transform: scale(0.95); }
+
+        .cards-grid { column-count: 2; column-gap: 16px; width: 100%; max-width: 100%; padding-bottom: 96px; }
+        .cards-grid.cols-1 { column-count: 1; }
+        .cards-grid.cols-2 { column-count: 2; }
+        .cards-grid.cols-3 { column-count: 3; }
+        .cards-grid.cols-4 { column-count: 4; }
+        .cards-grid.manual-sort { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; column-count: auto; }
+        .cards-grid.manual-sort.cols-1 .card { width: 100%; }
+        .cards-grid.manual-sort.cols-2 .card { width: calc(50% - 8px); }
+        .cards-grid.manual-sort.cols-3 .card { width: calc(33.333% - 10.667px); }
+        .cards-grid.manual-sort.cols-4 .card { width: calc(25% - 12px); }
+        .cards-grid.manual-sort .card { display: flex; flex-direction: column; margin: 0; flex: 0 0 auto; }
+
+        html[data-cols="1"] .cards-grid { column-count: 1 !important; }
+        html[data-cols="2"] .cards-grid { column-count: 2 !important; }
+        html[data-cols="3"] .cards-grid { column-count: 3 !important; }
+        html[data-cols="4"] .cards-grid { column-count: 4 !important; }
+        html[data-cols="1"] .cards-grid.manual-sort .card { width: 100% !important; }
+        html[data-cols="2"] .cards-grid.manual-sort .card { width: calc(50% - 8px) !important; }
+        html[data-cols="3"] .cards-grid.manual-sort .card { width: calc(33.333% - 10.667px) !important; }
+        html[data-cols="4"] .cards-grid.manual-sort .card { width: calc(25% - 12px) !important; }
+
+        .card {
+            position: relative; break-inside: avoid; page-break-inside: avoid;
+            display: inline-block; vertical-align: top;
+            width: 100%; margin: 0 0 16px 0;
+            background: var(--card-bg);
+            backdrop-filter: blur(var(--blur-card)); -webkit-backdrop-filter: blur(var(--blur-card));
+            border-radius: var(--radius-card); padding: 0;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--shadow);
+            transition: border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+            overflow: clip; min-width: 0;
+        }
+        .card:hover { border-color: var(--card-hover-border); transform: translateY(-2px); }
+        .card.dragging { opacity: 0.35; transform: scale(0.98); pointer-events: none; }
+        .card.drag-over-card { border-color: var(--accent); box-shadow: 0 0 28px var(--filter-btn-active-bg), 0 0 0 2px var(--accent); }
+        .card-shimmer-frame {
+            position: absolute; inset: 0; z-index: 3;
+            border-radius: var(--radius-card); padding: 1.5px;
+            background: linear-gradient(90deg, transparent 0%, transparent 38%, var(--shimmer-1) 47%, var(--shimmer-2) 53%, transparent 62%, transparent 100%);
+            background-size: 200% 100%; background-repeat: no-repeat;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            animation: headerShimmer 4s ease-in-out infinite;
+            opacity: 0; pointer-events: none; transition: opacity 0.35s ease;
+        }
+        .card:hover .card-shimmer-frame { opacity: 0.95; }
+        .card.drag-over-top::before, .card.drag-over-bottom::after {
+            content: ''; position: absolute; left: 0; right: 0; height: 3px;
+            background: var(--accent); box-shadow: 0 0 14px var(--accent);
+            border-radius: 2px; pointer-events: none; z-index: 10;
+        }
+        .card.drag-over-top::before { top: -9px; }
+        .card.drag-over-bottom::after { bottom: -9px; }
+        .card-header {
+            position: sticky; top: 0; z-index: 5;
+            background: var(--card-bg);
+            backdrop-filter: blur(var(--blur-card)); -webkit-backdrop-filter: blur(var(--blur-card));
+            display: flex; align-items: center; gap: 8px;
+            padding: 14px 18px 12px 18px;
+            border-bottom: 1px solid var(--card-border);
+            cursor: pointer; user-select: none;
+            transition: background 0.35s ease, border-color 0.35s ease; touch-action: pan-y; overflow: hidden;
+        }
+        .card-header:hover { background: rgba(255,255,255,0.02); }
+        body.theme-light .card-header:hover, body.theme-ios-glass .card-header:hover { background: rgba(0,0,0,0.02); }
+
+        /* ============================================================
+           ПОЛОСА КАРТОЧКИ — 8 вариантов через body.strip-style-*
+           ============================================================ */
+        .card-header::before {
+            content: '';
+            position: absolute;
+            background: linear-gradient(180deg, var(--shimmer-1) 0%, var(--shimmer-2) 100%);
+            transition: all 0.3s ease;
+            pointer-events: none;
+            z-index: 1;
+            left: 0; top: 0; bottom: 0; width: 4px;
+            box-shadow: 0 0 10px var(--shimmer-1);
+        }
+        .card:hover .card-header::before {
+            box-shadow: 0 0 14px var(--shimmer-1), 0 0 26px var(--shimmer-2);
+            width: 5px;
+        }
+        .card[data-cat-color] .card-header::before {
+            background: var(--card-cat-color);
+            box-shadow: 0 0 12px var(--card-cat-color);
+        }
+
+        body.strip-style-hover-fill .card-header::before {
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            opacity: 1;
+            background: var(--card-cat-color, var(--shimmer-1));
+            box-shadow: 0 0 10px var(--card-cat-color, var(--shimmer-1));
+            transition: width 0.35s ease, opacity 0.35s ease, box-shadow 0.35s ease;
+        }
+        body.strip-style-hover-fill .card:hover .card-header::before {
+            width: 100%;
+            opacity: 0.28;
+            box-shadow: none;
+        }
+        body.strip-style-hover-fill .card-header > * {
+            position: relative;
+            z-index: 2;
+        }
+
+        body.strip-style-gradient-full .card-header::before {
+            left: 0; top: 0; bottom: 0;
+            width: 100%;
+            box-shadow: none;
+            background: linear-gradient(
+                90deg,
+                var(--card-cat-color, var(--shimmer-1)) 0%,
+                color-mix(in srgb, var(--card-cat-color, var(--shimmer-1)) 45%, transparent) 55%,
+                transparent 100%
+            );
+            opacity: 0.55;
+        }
+        body.strip-style-gradient-full .card:hover .card-header::before { opacity: 0.85; }
+
+        body.strip-style-gradient-center .card-header::before {
+            left: 0; right: 0; top: 0; bottom: 0;
+            width: auto;
+            box-shadow: none;
+            background: linear-gradient(
+                90deg,
+                transparent 0%,
+                var(--card-cat-color, var(--shimmer-1)) 50%,
+                transparent 100%
+            );
+            opacity: 0.7;
+        }
+        body.strip-style-gradient-center .card:hover .card-header::before { opacity: 1; }
+
+        body.strip-style-top .card-header::before {
+            left: 0; right: 0; top: 0;
+            width: auto; height: 3px; bottom: auto;
+            background: linear-gradient(
+                90deg,
+                var(--card-cat-color, var(--shimmer-1)) 0%,
+                var(--shimmer-2) 100%
+            );
+            box-shadow: 0 2px 12px var(--shimmer-1);
+        }
+        body.strip-style-top .card:hover .card-header::before {
+            height: 4px;
+            width: auto;
+            box-shadow: 0 3px 16px var(--shimmer-1), 0 3px 28px var(--shimmer-2);
+        }
+
+        body.strip-style-bottom .card-header::before {
+            left: 0; right: 0; bottom: 0;
+            width: auto; height: 3px; top: auto;
+            background: linear-gradient(
+                90deg,
+                var(--card-cat-color, var(--shimmer-1)) 0%,
+                var(--shimmer-2) 100%
+            );
+            box-shadow: 0 -2px 12px var(--shimmer-1);
+        }
+        body.strip-style-bottom .card:hover .card-header::before {
+            height: 4px;
+            width: auto;
+            box-shadow: 0 -3px 16px var(--shimmer-1), 0 -3px 28px var(--shimmer-2);
+        }
+
+        body.strip-style-frame .card-header::before {
+            left: 0; right: 0; top: 0; bottom: 0;
+            width: auto;
+            background: linear-gradient(
+                135deg,
+                var(--card-cat-color, var(--shimmer-1)) 0%,
+                var(--shimmer-2) 100%
+            );
+            padding: 1.5px;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask-composite: exclude;
+            box-shadow: none;
+            opacity: 0.6;
+        }
+        body.strip-style-frame .card:hover .card-header::before { opacity: 0.95; }
+
+        body.strip-style-off .card-header::before { display: none !important; }
+
+        @supports not (background: color-mix(in srgb, red 50%, transparent)) {
+            body.strip-style-gradient-full .card-header::before {
+                background: linear-gradient(
+                    90deg,
+                    var(--card-cat-color, var(--shimmer-1)) 0%,
+                    transparent 100%
+                );
+                opacity: 0.35;
+            }
+        }
+
+        .bulk-checkbox-card {
+            appearance: none; -webkit-appearance: none;
+            width: 17px; height: 17px; border-radius: 5px;
+            border: 2px solid var(--filter-btn-border);
+            background: transparent; cursor: pointer;
+            flex-shrink: 0; transition: all 0.15s;
+            opacity: 0; margin: 0; position: relative;
+        }
+        .card:hover .bulk-checkbox-card, .bulk-checkbox-card:checked { opacity: 1; }
+        .bulk-checkbox-card:checked { background: var(--accent); border-color: var(--accent); }
+        .bulk-checkbox-card:checked::after { content: '✓'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #0b1a2e; font-weight: 900; font-size: 0.75rem; }
+        .bulk-checkbox {
+            appearance: none; -webkit-appearance: none;
+            width: 15px; height: 15px; border-radius: 4px;
+            border: 2px solid var(--filter-btn-border);
+            background: transparent; cursor: pointer;
+            flex-shrink: 0; transition: all 0.15s;
+            opacity: 0; margin: 0;
+        }
+        .link-item:hover .bulk-checkbox { opacity: 1; }
+        .link-item.bulk-selected { background: var(--filter-btn-active-bg); border-left-color: var(--accent); }
+        .card-icon {
+            font-size: 1.15rem; line-height: 1; flex-shrink: 0;
+            filter: drop-shadow(0 0 3px var(--accent));
+            transition: all 0.3s; cursor: pointer; user-select: none;
+            border-radius: 6px; padding: 2px 4px;
+        }
+        .card-icon:hover { background: var(--filter-btn-active-bg); transform: scale(1.15); }
+        .card-title {
+            font-size: 1.15rem; font-weight: 700;
+            flex: 1; min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            background: linear-gradient(135deg, var(--text-color) 0%, var(--text-color) 70%, var(--accent) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .card:hover .card-title { background: linear-gradient(135deg, var(--shimmer-1) 0%, var(--shimmer-2) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        .card-sort-btn, .rename-group-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 26px; padding: 0;
+            border-radius: 20px; border: 1px solid var(--filter-btn-border);
+            background: transparent; color: var(--filter-btn-color);
+            font-size: 0.85rem; cursor: pointer;
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.2s ease, background 0.2s, border-color 0.2s, color 0.2s;
+            flex-shrink: 0;
+        }
+        .card-header:hover .card-sort-btn, .card-header:hover .rename-group-btn, .card-sort-btn.active { opacity: 1; pointer-events: auto; }
+        .card-sort-btn:hover, .rename-group-btn:hover, .card-sort-btn.active { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .card-sort-dropdown { display: none; position: fixed; z-index: 9999; background: var(--modal-bg); border: 1px solid var(--modal-border); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 4px; min-width: 200px; }
+        .card-sort-dropdown.show { display: flex; flex-direction: column; }
+        .card-sort-dropdown button { background: transparent; border: none; color: var(--text-color); text-align: left; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+        .card-sort-dropdown button:hover { background: var(--filter-btn-active-bg); color: var(--filter-btn-active-color); }
+        .card-count {
+            background: var(--tag-bg); color: var(--tag-color);
+            font-size: 0.75rem; padding: 2px 10px;
+            border-radius: 30px; font-weight: 700;
+            border: 1px solid var(--tag-bg);
+            flex-shrink: 0; line-height: 1.4; min-width: 28px; text-align: center;
+        }
+        .links { position: relative; z-index: 2; padding: 12px 14px; overflow: hidden; }
+        .card.collapsed .links { display: none; }
+        .card.collapsed .card-header { border-bottom-color: transparent; padding-bottom: 14px; }
+        .link-item {
+            padding: 10px 12px; margin-bottom: 6px; border-radius: 10px;
+            background: rgba(255,255,255,0.02);
+            border-left: 2px solid transparent;
+            transition: background 0.2s, border-color 0.2s;
+            cursor: grab; overflow: hidden;
+            user-select: none; touch-action: pan-y;
+            position: relative; contain: layout style;
+        }
+        .link-item .desc, .link-item .link-display { user-select: text; -webkit-user-select: text; }
+        body.theme-light .link-item, body.theme-ios-glass .link-item { background: rgba(0,0,0,0.02); }
+        .link-item:last-child { margin-bottom: 0; }
+        .link-item:hover { background: var(--link-row-hover); border-left-color: var(--link-hover); }
+        .link-item.hidden { display: none; }
+        .link-item.is-favorite { background: var(--favorite-bg); border-left-color: var(--favorite-border); }
+        .link-item.is-favorite:hover { background: var(--favorite-bg-hover); }
+        .link-item.dragging { opacity: 0.35; pointer-events: none; cursor: grabbing; }
+        .link-item.drag-over-top::before, .link-item.drag-over-bottom::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--link-hover); box-shadow: 0 0 8px var(--link-hover); border-radius: 1px; z-index: 5; }
+        .link-item.drag-over-top::before { top: -2px; }
+        .link-item.drag-over-bottom::after { bottom: -2px; }
+        .link-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .link-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+        .link-actions .edit-btn, .link-actions .delete-btn { opacity: 0; transition: opacity 0.2s; }
+        .link-item:hover .link-actions .edit-btn, .link-item:hover .link-actions .delete-btn { opacity: 1; }
+        .favorite-btn {
+            cursor: pointer; font-size: 1rem; user-select: none;
+            color: var(--action-color); padding: 2px 4px; border-radius: 6px;
+            transition: all 0.2s; line-height: 1; flex-shrink: 0;
+            background: transparent; border: none;
+        }
+        .favorite-btn:hover { transform: scale(1.15); }
+        .favorite-btn.fav-on { color: #f1c40f; text-shadow: 0 0 10px rgba(241,196,15,0.6); }
+        .favorite-btn.fav-off { color: var(--action-color); opacity: 0.55; font-size: 1.05rem; }
+        .link-item:hover .favorite-btn.fav-off { opacity: 0.9; }
+        .smart-link {
+            color: var(--link-color); text-decoration: none;
+            font-size: 0.95rem;
+            display: inline-flex; align-items: center; gap: 6px;
+            flex: 1; min-width: 0;
+            font-family: monospace; overflow: hidden; cursor: pointer;
+        }
+        .smart-link:hover .link-display { color: var(--link-hover); text-decoration: underline; }
+        .link-icon { font-size: 0.95rem; flex-shrink: 0; opacity: 0.85; }
+        .link-display { color: var(--link-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-width: 0; display: block; }
+        .link-status {
+            width: 8px; height: 8px; border-radius: 50%;
+            flex-shrink: 0; background: var(--status-unknown);
+            box-shadow: 0 0 6px var(--status-unknown);
+            transition: all 0.25s; margin-left: 6px; margin-right: 2px;
+        }
+        .link-item[data-status="ok"] .link-status { background: var(--status-ok); box-shadow: 0 0 8px var(--status-ok); }
+        .link-item[data-status="warn"] .link-status { background: var(--status-warn); box-shadow: 0 0 8px var(--status-warn); }
+        .link-item[data-status="error"] .link-status, .link-item[data-status="timeout"] .link-status { background: var(--status-error); box-shadow: 0 0 8px var(--status-error); }
+        .edit-btn, .delete-btn {
+            cursor: pointer; font-size: 0.9rem;
+            color: var(--action-color); padding: 3px 5px; border-radius: 6px;
+            transition: all 0.2s; line-height: 1;
+            flex-shrink: 0; background: transparent; border: none;
+        }
+        .edit-btn:hover { color: #5dade2; background: rgba(93,173,226,0.15); }
+        .delete-btn:hover { color: #e74c3c; background: rgba(231,76,60,0.15); }
+        .desc {
+            font-size: 0.88rem; color: var(--desc-color);
+            margin-top: 6px; padding-left: var(--link-text-indent);
+            font-style: italic; line-height: 1.45;
+            white-space: pre-wrap; word-break: break-word;
+            border-radius: 6px; padding-right: 6px; padding-top: 2px; padding-bottom: 2px;
+            transition: background 0.15s; cursor: text; min-height: 1em;
+        }
+        .desc:hover { background: rgba(255,255,255,0.04); }
+        .desc.desc-editing {
+            background: var(--input-bg); border: 1px solid var(--input-focus-border);
+            padding: 6px 8px; padding-left: var(--link-text-indent);
+            outline: none; font-style: normal; color: var(--text-color);
+        }
+        .link-meta {
+            display: flex; align-items: center; gap: 8px; margin-top: 6px;
+            padding-left: 27px; font-size: 0.72rem; color: var(--meta-color);
+            flex-wrap: wrap; opacity: 0.72;
+        }
+        .link-meta .meta-left { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+        .link-meta .meta-right { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+        .link-meta .meta-item { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+        .link-meta .meta-ico { font-size: 0.68rem; opacity: 0.75; }
+        .link-meta .meta-created { cursor: pointer; padding: 1px 6px; border-radius: 8px; }
+        .link-meta .meta-created:hover { background: var(--filter-btn-active-bg); color: var(--filter-btn-active-color); opacity: 1; }
+        .category-tag {
+            background: var(--tag-bg); color: var(--tag-color);
+            font-size: 0.7rem; padding: 1px 8px;
+            border-radius: 10px; border: 1px solid var(--tag-bg);
+            white-space: nowrap; font-weight: 600;
+            display: inline-flex; align-items: center; gap: 3px;
+        }
+        .category-tag[data-category] { cursor: pointer; transition: filter 0.15s, transform 0.15s; }
+        .category-tag[data-category]:hover { filter: brightness(1.2); transform: translateY(-1px); }
+        .tag-chip {
+            background: rgba(189,147,249,0.15); color: #bd93f9;
+            font-size: 0.7rem; padding: 1px 8px;
+            border-radius: 10px; border: 1px solid rgba(189,147,249,0.3);
+            white-space: nowrap; font-weight: 600;
+            display: inline-flex; align-items: center;
+            cursor: pointer; transition: all 0.15s;
+        }
+        .tag-chip:hover { background: #bd93f9; color: #0b1a2e; }
+        .bulk-panel {
+            position: fixed; bottom: 100px; left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: var(--modal-bg); border: 1px solid var(--modal-border);
+            border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+            padding: 10px 16px; z-index: 2200;
+            display: flex; align-items: center; gap: 12px;
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.25s, visibility 0.25s;
+            max-width: 95vw; flex-wrap: wrap;
+            opacity: 0; visibility: hidden; pointer-events: none;
+        }
+        .bulk-panel.show { transform: translateX(-50%) translateY(0); opacity: 1; visibility: visible; pointer-events: auto; }
+        .bulk-panel-info { color: var(--text-color); font-size: 0.95rem; font-weight: 600; }
+        .bulk-panel-info .bulk-num { color: var(--accent); font-weight: 700; }
+        .bulk-btn { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 6px 12px; border-radius: 20px; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; white-space: nowrap; }
+        .bulk-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .bulk-btn.danger { color: #e74c3c; border-color: rgba(231,76,60,0.4); }
+        .bulk-btn.danger:hover { background: rgba(231,76,60,0.15); border-color: #e74c3c; }
+        .modal { display: none; position: fixed; z-index: 1000; left:0; top:0; width:100%; height:100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px; }
+        .modal.active { display: flex; }
+        .modal.active .modal-content { animation: modalIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        @keyframes modalIn { from { transform: scale(0.92) translateY(18px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
+        .modal-content {
+            background: var(--modal-bg);
+            border-radius: calc(var(--radius-card) + 4px);
+            padding: 24px 28px;
+            max-width: 620px; width: 92%; max-height: 90vh; overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+            border: 1px solid var(--modal-border);
+            color: var(--text-color);
+        }
+        .modal-content.modal-wide { max-width: 900px; }
+        .modal-content h2 { color: var(--text-color); margin-bottom:16px; font-weight:500; font-size:1.5rem; }
+        .modal-content .form-group { margin-bottom:12px; display: flex; flex-direction: column; gap: 4px; }
+        .modal-content .form-group label { color: var(--meta-color); font-size:1rem; font-weight: 500; }
+        .modal-content .form-group input, .modal-content .form-group select, .modal-content .form-group textarea {
+            padding: 8px 12px; border: 1px solid var(--input-border); border-radius: 10px;
+            background: var(--input-bg); color: var(--text-color);
+            font-size:1.05rem; outline: none; width: 100%; font-family: inherit;
+            color-scheme: inherit;
+        }
+        .modal-content .form-group textarea { padding: 10px 12px; min-height: 84px; resize: vertical; }
+        .modal-content .form-group input:focus, .modal-content .form-group select:focus, .modal-content .form-group textarea:focus { border-color: var(--input-focus-border); }
+        .modal-content .form-group select option { background: var(--modal-bg); color: var(--text-color); }
+        .modal-actions { display: flex; gap:10px; justify-content:flex-end; margin-top:18px; flex-wrap: wrap; }
+        .modal-actions .btn { padding:8px 22px; font-size:1rem; background: var(--btn-gradient); color: var(--btn-text); border: none; border-radius: 20px; cursor: pointer; }
+        .modal-actions .btn-secondary { background: rgba(128,128,128,0.15); color: var(--text-color); border: none; border-radius: 20px; cursor: pointer; }
+        .modal-actions .btn-danger { background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; border: none; border-radius: 20px; cursor: pointer; }
+        .modal-settings { max-width: 780px !important; width: 92% !important; padding: 0 !important; display: flex; flex-direction: column; max-height: 88vh; }
+        .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px 8px; border-bottom: 1px solid var(--modal-border); }
+        .settings-header h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+        .modal-close-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--filter-btn-border); background: transparent; color: var(--filter-btn-color); font-size: 0.85rem; cursor: pointer; }
+        .modal-close-btn:hover { background: rgba(231,76,60,0.15); border-color: #e74c3c; color: #e74c3c; }
+        .settings-tabs { display: flex; gap: 3px; padding: 8px 16px 0; border-bottom: 1px solid var(--modal-border); flex-wrap: wrap; }
+        .settings-tab { background: transparent; border: 1px solid transparent; border-bottom: none; color: var(--filter-btn-color); padding: 5px 11px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 0.78rem; font-weight: 600; }
+        .settings-tab:hover, .settings-tab.active { color: var(--filter-btn-active-color); background: var(--filter-btn-active-bg); }
+        .settings-body { padding: 12px 16px 14px; overflow-y: auto; flex: 1 1 auto; }
+        .settings-panel { display: none; }
+        .settings-panel.active { display: block; }
+        .settings-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .settings-column { display: flex; flex-direction: column; gap: 9px; background: rgba(0,0,0,0.15); border: 1px solid var(--modal-border); border-radius: 10px; padding: 9px 10px; }
+        .appearance-group { display: flex; flex-direction: column; gap: 5px; }
+        .appearance-group + .appearance-group { padding-top: 8px; border-top: 1px dashed var(--modal-border); }
+        .appearance-title { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 700; color: var(--meta-color); text-transform: uppercase; letter-spacing: 0.6px; }
+        .settings-panel select {
+            padding: 6px 10px;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            font-size: 0.9rem;
+            outline: none;
+            width: 100%;
+            color-scheme: inherit;
+        }
+        .settings-panel select option,
+        .modal-content .form-group select option {
+            background: var(--modal-bg);
+            color: var(--text-color);
+        }
+        input[type="color"] { color-scheme: inherit; }
+        .theme-selector { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; padding: 2px 0 3px; }
+        .theme-dot {
+            position: relative; width: 100%; max-width: 24px;
+            aspect-ratio: 1; justify-self: center;
+            border-radius: 50%; border: 2px solid rgba(255,255,255,0.2);
+            cursor: pointer; padding: 0; overflow: hidden;
+            transition: all 0.2s ease;
+        }
+        .theme-dot:hover { transform: scale(1.15); box-shadow: 0 0 12px var(--accent); }
+        .theme-dot.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 0 16px var(--accent); transform: scale(1.08); }
+        .theme-dot.active::after { content: '✓'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.55rem; font-weight: 900; text-shadow: 0 1px 3px rgba(0,0,0,0.9); }
+        .theme-dot[data-theme="dark"] { background: linear-gradient(135deg, #0b1a2e, #2a4b6e); }
+        .theme-dot[data-theme="light"] { background: linear-gradient(135deg, #eef2f7, #bcc8d9); }
+        .theme-dot[data-theme="ios-glass"] { background: linear-gradient(135deg, #a8c0ff, #fbc2eb, #ffecd2); }
+        .theme-dot[data-theme="midnight"] { background: linear-gradient(135deg, #1a0033, #4a0066, #ff006e); }
+        .theme-dot[data-theme="ocean"] { background: linear-gradient(135deg, #003049, #006494, #00b4d8); }
+        .theme-dot[data-theme="nord"] { background: linear-gradient(135deg, #2e3440, #4c566a, #88c0d0); }
+        .theme-dot[data-theme="solarized"] { background: linear-gradient(135deg, #002b36, #b58900); }
+        .theme-dot[data-theme="dracula"] { background: linear-gradient(135deg, #282a36, #bd93f9, #ff79c6); }
+        .theme-dot[data-theme="gruvbox"] { background: linear-gradient(135deg, #282828, #fabd2f, #d65d0e); }
+        .theme-dot[data-theme="black"] { background: linear-gradient(135deg, #000, #1a1a1a, #f5d76e); }
+        .theme-dot[data-theme="cinema"] { background: radial-gradient(circle at 50% 35%, #ffb800 0%, #ff6b1a 28%, #3a1500 55%, #000 100%); }
+        .theme-dot[data-theme="neon"] { background: radial-gradient(circle at 25% 25%, #00e5ff 0%, transparent 55%), radial-gradient(circle at 75% 75%, #ff0080 0%, transparent 55%), linear-gradient(135deg, #0a0e27, #1a1f4e); }
+        .theme-dot[data-theme="material"] { background: radial-gradient(circle at 30% 30%, rgba(255,71,87,0.85) 0%, transparent 50%), radial-gradient(circle at 70% 75%, rgba(0,205,205,0.8) 0%, transparent 50%), linear-gradient(135deg, #2b2f38, #44474f); }
+        .theme-dot[data-theme="material-glass"] { background: radial-gradient(circle at 30% 30%, rgba(140,200,255,0.9) 0%, transparent 55%), radial-gradient(circle at 70% 75%, rgba(179,157,255,0.8) 0%, transparent 55%), linear-gradient(135deg, #202329, #2a2d35); }
+        .theme-dot[data-theme="neumorphism-dark"] { background: linear-gradient(135deg, #2a2d34, #383c44); }
+        .theme-dot[data-theme="material-you"] { background: radial-gradient(circle at 30% 30%, #d0bcff 0%, transparent 60%), radial-gradient(circle at 75% 75%, #8ea1ff 0%, transparent 60%), linear-gradient(135deg, #1c1b1f, #2b2930); }
+        .toggle-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.78rem; color: var(--filter-btn-color); }
+        .toggle-row span.toggle-label { flex: 1; }
+        .toggle-row input[type="checkbox"] {
+            appearance: none; -webkit-appearance: none;
+            width: 28px; height: 16px; border-radius: 16px;
+            background: rgba(128,128,128,0.3); position: relative;
+            cursor: pointer; transition: all 0.25s;
+            flex-shrink: 0; outline: none; border: 1px solid var(--filter-btn-border); margin: 0;
+        }
+        .toggle-row input[type="checkbox"]::before { content: ''; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: left 0.25s; }
+        .toggle-row input[type="checkbox"]:checked { background: var(--filter-btn-active-color); border-color: var(--filter-btn-active-color); }
+        .toggle-row input[type="checkbox"]:checked::before { left: calc(100% - 12px); }
+        .font-slider-row { display: flex; align-items: center; gap: 10px; }
+        .font-slider-row input[type="range"] { flex: 1; cursor: pointer; accent-color: var(--accent); min-width: 0; height: 3px; }
+        .font-size-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--filter-btn-active-bg); border: 1px solid var(--filter-btn-active-color); color: var(--filter-btn-active-color); font-size: 0.68rem; font-weight: 700; }
+        .col-buttons { display: flex; gap: 5px; }
+        .col-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 4px 3px; border-radius: 8px; cursor: pointer; transition: all 0.2s; min-width: 0; }
+        .col-btn:hover, .col-btn.active { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .col-btn .col-bars { display: flex; gap: 2px; height: 10px; align-items: flex-end; }
+        .col-btn .col-bar { width: 2.5px; background: currentColor; border-radius: 1px; }
+        .col-btn .col-num { font-size: 0.6rem; font-weight: 700; }
+        .color-picker-row { display: flex; align-items: center; gap: 6px; }
+        .color-picker-row label { font-size: 0.72rem; color: var(--filter-btn-color); flex: 1; }
+        .color-picker-row input[type="color"] { width: 30px; height: 22px; border: 1px solid var(--filter-btn-border); border-radius: 6px; padding: 1px; cursor: pointer; color-scheme: inherit; }
+        .color-picker-row button { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 3px 7px; border-radius: 6px; cursor: pointer; font-size: 0.68rem; }
+        .data-panel { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: rgba(0,0,0,0.15); border: 1px solid var(--modal-border); border-radius: 10px; }
+        .data-btn { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); font-size: 0.78rem; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; font-family: inherit; }
+        .data-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); transform: translateX(3px); }
+        .data-btn .data-icon { font-size: 1.05rem; flex-shrink: 0; }
+		        .tools-compact-btns {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .tools-compact-btns .data-btn {
+            padding: 5px 9px;
+            font-size: 0.75rem;
+        }
+        .wallpaper-row { display: flex; gap: 6px; align-items: stretch; }
+        .wallpaper-row .data-btn.wallpaper-upload { flex: 1 1 auto; min-width: 0; }
+        .wallpaper-row .data-btn.wallpaper-clear { flex: 0 0 auto; width: 38px; padding: 8px 0; justify-content: center; font-size: 1rem; }
+        .name-with-icon { display: flex; gap: 6px; align-items: stretch; }
+        .name-with-icon input[type="text"] { flex: 1 1 auto; min-width: 0; }
+        .icon-picker-btn { width: 48px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 0; border: 1px solid var(--input-border); border-radius: 10px; background: var(--input-bg); color: var(--text-color); font-size: 1.35rem; cursor: pointer; }
+        .icon-picker-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); }
+        .category-picker-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; padding: 4px; margin-bottom: 8px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; }
+        .category-picker-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; cursor: pointer; background: transparent; border: 1px solid transparent; color: var(--text-color); text-align: left; font-size: 0.95rem; width: 100%; }
+        .category-picker-item:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); }
+        .category-picker-item.selected { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .category-picker-item .picker-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cat-color, var(--accent)); flex-shrink: 0; }
+        .category-picker-item .picker-name { flex: 1; min-width: 0; }
+        .category-picker-item .picker-badge { background: rgba(255,255,255,0.12); border-radius: 20px; font-size: 0.7rem; padding: 2px 8px; font-weight: 700; }
+        .category-picker-item.picker-none .picker-name { font-style: italic; opacity: 0.8; }
+        .category-picker-new { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+        .category-picker-new input { flex: 1; padding: 8px 12px; border: 1px solid var(--input-border); border-radius: 10px; background: var(--input-bg); color: var(--text-color); font-size: 0.95rem; outline: none; }
+        .category-picker-new button { background: var(--btn-gradient); color: var(--btn-text); border: none; padding: 8px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; font-size: 0.85rem; }
+        .confirm-content { max-width: 460px; text-align: left; }
+        .confirm-content h2 { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1.35rem; margin-bottom: 10px; }
+        .confirm-message { color: var(--desc-color); font-size: 1.05rem; line-height: 1.5; }
+        .confirm-message .confirm-highlight { color: var(--accent); font-weight: 600; }
+        .category-list { margin:10px 0; }
+        .category-item { display:flex; align-items:center; gap: 8px; padding:8px 10px; margin-bottom:6px; background: var(--input-bg); border-radius:10px; border:1px solid var(--card-border); }
+        .category-item:hover { background: var(--filter-btn-active-bg); }
+        .category-item .cat-order-buttons { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+        .category-item .cat-order-btn { background: transparent; border: 1px solid var(--card-border); color: var(--action-color); cursor: pointer; font-size: 0.6rem; padding: 3px 6px; border-radius: 4px; }
+        .category-item .cat-order-btn:disabled { opacity: 0.25; cursor: default; }
+        .category-item .cat-name { font-size:1.05rem; color: var(--text-color); flex:1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .category-item .cat-name input { background:transparent; border:1px solid var(--input-border); color: var(--text-color); padding:4px 8px; border-radius:6px; font-size:1rem; width:100%; }
+        .category-item .cat-actions { display:flex; gap:4px; align-items:center; flex-shrink: 0; }
+        .category-item .cat-actions button { background:transparent; border:none; color: var(--action-color); cursor:pointer; font-size:1.05rem; padding:2px 6px; border-radius:6px; }
+        .category-item .color-picker { margin-left:2px; width:28px; height:28px; border:2px solid var(--card-border); border-radius:50%; padding:0; display:inline-block; }
+        .category-item .color-picker input[type="color"] { width:24px; height:24px; border:none; padding:0; cursor:pointer; }
+        .notification { position:fixed; top:20px; right:20px; background: rgba(46,204,113,0.95); color: white; padding:12px 20px; border-radius:10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index:2000; display:none; max-width: 420px; font-size: 0.95rem; word-break: break-word; }
+        .notification.error { background: rgba(231,76,60,0.95); }
+        .notification.show { display:block; }
+        .undo-toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(200%); background: rgba(30, 40, 60, 0.98); color: #fff; padding: 12px 20px; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); z-index: 2600; display: flex; align-items: center; gap: 16px; transition: transform 0.3s ease; font-size: 1rem; }
+        .undo-toast.show { transform: translateX(-50%) translateY(0); }
+        .undo-toast button { background: var(--btn-gradient); color: var(--btn-text); border: none; padding: 6px 16px; border-radius: 20px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+        .loading-bar { position: fixed; top: 0; left: 0; height: 3px; width: 0; background: var(--btn-gradient); z-index: 9999; transition: width 0.3s ease, opacity 0.3s ease; opacity: 1; }
+        .loading-bar.done { opacity: 0; width: 100% !important; }
+        .loading-spinner { position: fixed; right: 20px; bottom: 100px; width: 40px; height: 40px; z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+        .loading-spinner.visible { opacity: 1; }
+        .loading-spinner svg { width: 100%; height: 100%; }
+        .loading-spinner circle { fill: none; stroke-width: 3; stroke-linecap: round; transform-origin: 50% 50%; }
+        .loading-spinner .bg { stroke: rgba(128,128,128,0.2); }
+        .loading-spinner .fg { stroke: var(--accent); stroke-dasharray: 100; stroke-dashoffset: 75; animation: spinnerRot 1.2s linear infinite; }
+        @keyframes spinnerRot { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .sidebar-float-toggle { display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); border-radius: 20px; cursor: pointer; font-size: 1.05rem; flex-shrink: 0; max-width: 0; padding: 6px 0; border-width: 0; opacity: 0; overflow: hidden; transition: all 0.35s; }
+        .sidebar-float-toggle.visible { max-width: 60px; padding: 6px 12px; border-width: 1px; opacity: 1; }
+        .sidebar-float-toggle:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        body.presentation-mode .sidebar, body.presentation-mode .topbar, body.presentation-mode .tags-bar-row, body.presentation-mode .page-header-card, body.presentation-mode .footer, body.presentation-mode .sidebar-float-toggle, body.presentation-mode .manual-hint, body.presentation-mode .bulk-panel, body.presentation-mode .fab-add, body.presentation-mode .settings-fab { display: none !important; }
+        body.presentation-mode .main-content { width: 100%; max-width: 1600px; margin: 0 auto; }
+        body.presentation-mode { padding: 40px 30px; }
+        body.compact-mode .card { margin-bottom: 8px; }
+        body.compact-mode .card-header { padding: 8px 12px; gap: 6px; }
+        body.compact-mode .card-title { font-size: 1rem; }
+        body.compact-mode .card-count { font-size: 0.65rem; }
+        body.compact-mode .links { padding: 6px 8px; }
+        body.compact-mode .link-item { padding: 4px 8px; margin-bottom: 2px; }
+        body.compact-mode .desc { font-size: 0.8rem; margin-top: 3px; padding-left: var(--link-text-indent); }
+        body.compact-mode .link-meta { font-size: 0.65rem; margin-top: 3px; padding-left: 27px; }
+        body.compact-mode .category-tag, body.compact-mode .tag-chip { font-size: 0.62rem; padding: 0 6px; }
+        body.compact-mode .topbar { padding: 8px 12px; }
+        .link-tooltip { position: fixed; z-index: 3000; max-width: 560px; padding: 8px 12px; background: rgba(15, 26, 46, 0.98); color: #e8edf3; border: 1px solid rgba(255, 215, 0, 0.25); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); font-family: monospace; font-size: 0.85rem; word-break: break-all; pointer-events: none; opacity: 0; transition: opacity 0.15s; }
+        .link-tooltip.visible { opacity: 1; }
+        .no-data { column-span: all; text-align:center; color: var(--meta-color); padding:30px 0; font-size:1.2rem; width: 100%; }
+        .footer { text-align:center; margin-top: 20px; font-size:0.9rem; color: var(--meta-color); padding-top:16px; }
+        .manual-hint { display: none; text-align: center; font-size: 0.85rem; color: var(--meta-color); padding: 6px 0 10px; font-style: italic; }
+        .manual-hint.visible { display: block; }
+        .tags-input-wrapper { position: relative; }
+        .tags-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 10px; min-height: 40px; align-items: center; }
+        .tag-chip-input { background: transparent; border: none; outline: none; color: var(--text-color); font-size: 0.95rem; flex: 1; min-width: 80px; padding: 4px 4px; font-family: inherit; }
+        .tags-chip { display: inline-flex; align-items: center; gap: 4px; background: rgba(189,147,249,0.2); color: #bd93f9; border: 1px solid rgba(189,147,249,0.35); padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; }
+        .tags-chip .remove-tag { cursor: pointer; font-weight: 700; opacity: 0.7; margin-left: 2px; font-size: 0.9rem; }
+        .tags-suggestions { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; background: var(--modal-bg); border: 1px solid var(--modal-border); border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.35); padding: 4px; max-height: 200px; overflow-y: auto; z-index: 100; display: none; }
+        .tags-suggestions.show { display: block; }
+        .tags-suggestions button { display: block; width: 100%; background: transparent; border: none; color: var(--text-color); text-align: left; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+        .tags-suggestions button:hover { background: var(--filter-btn-active-bg); color: var(--filter-btn-active-color); }
+        .plugins-manager-list { display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow-y: auto; padding: 6px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; }
+        .plugins-toolbar { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .plugin-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); }
+        .plugin-row:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); }
+        .plugin-row-main { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+        .plugin-status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .plugin-row-info { flex: 1; min-width: 0; }
+        .plugin-row-name { font-weight: 700; font-size: 0.9rem; color: var(--text-color); display: flex; align-items: center; gap: 6px; }
+        .plugin-version { opacity: 0.5; font-size: 0.72rem; font-weight: 500; }
+        .plugin-row-desc { color: var(--desc-color); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .plugin-row-meta { color: var(--meta-color); font-size: 0.68rem; display: flex; gap: 5px; margin-top: 2px; }
+        .plugin-row-actions { display: flex; gap: 3px; flex-shrink: 0; }
+        .plugin-action-btn { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; line-height: 1; }
+        .plugin-action-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .plugin-action-btn.danger:hover { color: #e74c3c; border-color: #e74c3c; background: rgba(231,76,60,0.1); }
+        .plugin-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 14px; font-size: 0.72rem; font-weight: 700; cursor: pointer; white-space: nowrap; border: 1.5px solid transparent; }
+        .plugin-toggle.on { background: rgba(46,204,113,0.18); color: #2ecc71; border-color: #2ecc71; }
+        .plugin-toggle.on:hover { background: rgba(46,204,113,0.28); }
+        .plugin-toggle.off { background: rgba(122,154,181,0.14); color: #a8b8c8; border-color: rgba(122,154,181,0.5); }
+        .plugin-toggle.off:hover { background: rgba(46,204,113,0.15); color: #2ecc71; border-color: #2ecc71; }
+        .plugin-hooks-info { color: var(--meta-color); font-size: 0.7rem; padding: 6px 4px 2px; border-top: 1px dashed var(--card-border); margin-top: 4px; }
+        .plugin-hooks-info code { background: var(--tag-bg); color: var(--tag-color); padding: 1px 5px; border-radius: 4px; font-family: monospace; font-size: 0.7rem; margin-right: 4px; }
+        .plugin-editor-code { font-family: monospace !important; font-size: 0.82rem !important; min-height: 320px; white-space: pre; overflow-x: auto; tab-size: 4; line-height: 1.45; }
+        .plugin-editor-status { min-height: 1.5em; font-size: 0.85rem; margin: 4px 0 8px; }
+        [data-plugin-modal="1"] .modal-content { padding: 24px 28px; }
+
+        .emoji-cat-btn {
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            padding: 4px 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            font-family: inherit;
+        }
+        .emoji-cat-btn:hover,
+        .emoji-cat-btn.active {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .emoji-btn {
+            background: var(--input-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-color);
+            border-radius: 8px;
+            font-size: 1.4rem;
+            line-height: 1;
+            padding: 6px 0;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 1;
+            font-family: inherit;
+        }
+        .emoji-btn:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            transform: scale(1.08);
+        }
+        .emoji-btn:active { transform: scale(0.95); }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+        .stat-card .stat-label { color: var(--meta-color); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+        .stat-card .stat-value { color: var(--accent); font-size: 1.8rem; font-weight: 700; line-height: 1.1; }
+        .stats-section { margin-bottom: 24px; }
+        .stats-section h3 { color: var(--text-color); font-size: 1.05rem; margin-bottom: 10px; font-weight: 600; }
+        .stats-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        .stats-table th, .stats-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid var(--card-border); }
+        .stats-table th { color: var(--meta-color); font-size: 0.75rem; text-transform: uppercase; font-weight: 700; }
+        .stats-table td { color: var(--text-color); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .stats-table .num-col { text-align: right; }
+        .stats-table tr:hover td { background: var(--filter-btn-active-bg); }
+        .donut-wrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
+        .donut-chart { position: relative; width: 180px; height: 180px; flex-shrink: 0; }
+        .donut-chart svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+        .donut-chart .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .donut-center .donut-total { font-size: 1.6rem; font-weight: 700; color: var(--text-color); line-height: 1; }
+        .donut-center .donut-label { font-size: 0.7rem; color: var(--meta-color); text-transform: uppercase; letter-spacing: 1px; }
+        .donut-legend { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
+        .donut-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+        .donut-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .donut-legend-name { flex: 1; color: var(--text-color); }
+        .donut-legend-value { color: var(--meta-color); }
+        .bar-chart { display: flex; align-items: flex-end; gap: 3px; height: 120px; padding: 8px 4px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; overflow-x: auto; }
+        .bar-chart .bar { flex: 1; min-width: 6px; background: var(--btn-gradient); border-radius: 3px 3px 0 0; min-height: 2px; }
+        .bar-chart .bar[data-count="0"] { background: rgba(128,128,128,0.15); }
+        .bar-labels { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--meta-color); margin-top: 6px; }
+        .health-bar-wrap { display: flex; align-items: center; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
+        .health-bar { flex: 1; min-width: 200px; height: 18px; background: rgba(128,128,128,0.15); border-radius: 9px; overflow: hidden; }
+        .health-bar-fill { height: 100%; background: linear-gradient(90deg, #2ecc71, #27ae60); border-radius: 9px; transition: width 0.6s ease; }
+        .health-bar-text { font-size: 0.9rem; color: var(--text-color); font-weight: 600; }
+        .health-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 0.8rem; color: var(--meta-color); }
+        .health-legend > span { display: inline-flex; align-items: center; gap: 5px; }
+        .health-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .health-dot.ok { background: #2ecc71; }
+        .health-dot.warn { background: #f1c40f; }
+        .health-dot.error { background: #e74c3c; }
+        .health-dot.timeout { background: #e74c3c; }
+        .health-dot.unknown { background: #7a9ab5; }
+        .heatmap-grid { display: flex; flex-direction: column; gap: 3px; padding: 12px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; overflow-x: auto; }
+        .heatmap-row { display: flex; gap: 3px; align-items: center; min-width: 480px; }
+        .heatmap-label { width: 34px; font-size: 0.7rem; color: var(--meta-color); flex-shrink: 0; text-align: right; padding-right: 4px; }
+        .heatmap-cell { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+        .heatmap-hours { display: flex; gap: 3px; margin-left: 34px; min-width: 480px; padding-top: 4px; }
+        .heatmap-hour-label { width: 14px; font-size: 0.6rem; text-align: center; color: var(--meta-color); flex-shrink: 0; }
+        .logs-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
+        .log-item { display: flex; gap: 10px; padding: 8px 10px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 8px; font-size: 0.85rem; align-items: center; }
+        .log-item .log-ts { color: var(--meta-color); font-size: 0.75rem; white-space: nowrap; }
+        .log-item .log-action { color: var(--accent); font-weight: 700; font-size: 0.7rem; text-transform: uppercase; background: var(--filter-btn-active-bg); padding: 2px 8px; border-radius: 12px; white-space: nowrap; }
+        .log-item .log-desc { flex: 1; color: var(--text-color); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+        .trash-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+        .trash-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 10px; }
+        .trash-item-info { flex: 1; min-width: 0; }
+        .trash-item-name { color: var(--text-color); font-weight: 600; font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .trash-item-link { color: var(--link-color); font-size: 0.8rem; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.75; }
+        .trash-item-date { color: var(--meta-color); font-size: 0.75rem; }
+        .trash-item-actions { display: flex; gap: 4px; flex-shrink: 0; }
+        .trash-item-actions button { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 4px 10px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+        .custom-themes-list { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--input-bg); border: 1px solid var(--card-border); border-radius: 8px; max-height: 180px; overflow-y: auto; }
+        .custom-theme-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; }
+        .custom-theme-row:hover { background: var(--filter-btn-active-bg); }
+        .custom-theme-dot { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.3); flex-shrink: 0; }
+        .custom-theme-name { flex: 1; font-size: 0.78rem; color: var(--text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        /* ============================================================
+           БЛОК КОДА В КАРТОЧКЕ
+           ============================================================ */
+        .link-item.has-code .link-main { margin-bottom: 4px; }
+
+        .link-code {
+            margin: 8px 0 4px;
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.22);
+            overflow: hidden;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        }
+        body.theme-light .link-code,
+        body.theme-ios-glass .link-code { background: rgba(0, 0, 0, 0.04); }
+
+        .link-code-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 5px 10px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--card-border);
+            font-size: 0.7rem;
+            color: var(--meta-color);
+        }
+        body.theme-light .link-code-head { background: rgba(0, 0, 0, 0.03); }
+
+        .link-code-lang {
+            text-transform: uppercase;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            padding: 1px 6px;
+            background: var(--tag-bg);
+            border-radius: 6px;
+        }
+        .link-code-lines { opacity: 0.7; }
+
+        .link-code-toggle,
+        .link-code-copy {
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            padding: 2px 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.68rem;
+            font-family: inherit;
+            transition: all 0.15s;
+        }
+        .link-code-toggle { margin-left: auto; }
+        .link-code-toggle:hover,
+        .link-code-copy:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+
+        .link-code-body {
+            margin: 0;
+            padding: 10px 12px;
+            overflow-x: auto;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            color: var(--text-color);
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .link-code-body code {
+            font-family: inherit;
+            white-space: pre;
+            display: block;
+        }
+        .link-code.code-collapsed .link-code-body {
+            max-height: calc(var(--collapsed-lines, 5) * 1.5em + 20px);
+            position: relative;
+        }
+        .link-code.code-collapsed .link-code-body::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 40px;
+            background: linear-gradient(180deg, transparent, rgba(0,0,0,0.35));
+            pointer-events: none;
+            border-radius: 0 0 10px 10px;
+        }
+        body.theme-light .link-code.code-collapsed .link-code-body::after {
+            background: linear-gradient(180deg, transparent, rgba(255,255,255,0.9));
+        }
+
+        body.compact-mode .link-code-body { font-size: 0.75rem; }
+        body.compact-mode .link-code.code-collapsed .link-code-body {
+            max-height: calc(var(--collapsed-lines, 3) * 1.5em + 16px);
+        }
+
+        .link-item.no-link .smart-link-nolink { cursor: default; opacity: 0.7; }
+        .link-item.no-link .smart-link-nolink:hover .link-display { color: inherit; text-decoration: none; }
+
+        /* ============================================================
+           РЕДАКТОР КОДА В МОДАЛКАХ
+           ============================================================ */
+        .code-editor-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
+        .code-editor-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .code-editor-head label { flex: 1; color: var(--meta-color); font-size: 1rem; font-weight: 500; }
+        .code-editor-head select {
+            padding: 4px 10px;
+            border: 1px solid var(--input-border);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-color);
+            font-size: 0.85rem;
+            color-scheme: inherit;
+            font-family: inherit;
+        }
+        .code-editor-toggle {
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            padding: 4px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-family: inherit;
+        }
+        .code-editor-toggle:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .code-editor-body {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .code-editor-body.open { display: flex; }
+        .code-editor-body textarea {
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace !important;
+            font-size: 0.85rem !important;
+            min-height: 180px;
+            white-space: pre;
+            overflow-x: auto;
+            tab-size: 4;
+            line-height: 1.5;
+        }
+        .code-editor-hint {
+            color: var(--meta-color);
+            font-size: 0.75rem;
+            font-style: italic;
+        }
+
+		/* ============================================================
+           ВКЛАДКА «ИНСТРУМЕНТЫ» — сетка карточек
+           ============================================================ */
+        .tools-tab-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .tools-card {
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--modal-border);
+            border-radius: 14px;
+            overflow: hidden;
+            min-width: 0;
+        }
+        .tools-card-full {
+            grid-column: 1 / -1;
+        }
+        body.theme-light .tools-card,
+        body.theme-ios-glass .tools-card {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .tools-card-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px 10px;
+            border-bottom: 1px solid var(--modal-border);
+            background: rgba(255, 255, 255, 0.02);
+        }
+        body.theme-light .tools-card-head,
+        body.theme-ios-glass .tools-card-head {
+            background: rgba(0, 0, 0, 0.02);
+        }
+        .tools-card-icon {
+            font-size: 1.3rem;
+            flex-shrink: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--filter-btn-active-bg);
+            border-radius: 9px;
+            border: 1px solid var(--filter-btn-active-color);
+        }
+        .tools-card-titles {
+            flex: 1;
+            min-width: 0;
+        }
+        .tools-card-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-color);
+            letter-spacing: 0.2px;
+        }
+        .tools-card-sub {
+            font-size: 0.7rem;
+            color: var(--meta-color);
+            opacity: 0.8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 1px;
+        }
+        .tools-card-action {
+            background: transparent;
+            border: 1px solid var(--filter-btn-border);
+            color: var(--filter-btn-color);
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .tools-card-action:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+
+        .tools-card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 10px 12px 12px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .tools-card-subhead {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: var(--meta-color);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            padding: 4px 2px 2px;
+            opacity: 0.85;
+        }
+        .tools-card-divider {
+            height: 1px;
+            background: var(--modal-border);
+            margin: 6px 0 2px;
+            opacity: 0.6;
+        }
+
+        .tools-card .data-btn {
+            padding: 7px 10px;
+            gap: 10px;
+            font-size: 0.8rem;
+            transform: none;
+        }
+        .tools-card .data-btn:hover { transform: translateX(2px); }
+
+        .tools-card .data-btn .data-btn-text {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            min-width: 0;
+            flex: 1;
+            text-align: left;
+        }
+        .tools-card .data-btn .data-btn-label {
+            font-weight: 600;
+            font-size: 0.82rem;
+            color: inherit;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tools-card .data-btn .data-btn-hint {
+            font-size: 0.68rem;
+            opacity: 0.6;
+            font-weight: 400;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .data-btn.data-btn-accent {
+            background: linear-gradient(135deg,
+                var(--filter-btn-active-bg) 0%,
+                transparent 100%);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .data-btn.data-btn-accent .data-icon {
+            filter: drop-shadow(0 0 6px var(--filter-btn-active-color));
+        }
+
+		.plugins-compact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 5px;
+            max-height: 340px;
+            overflow-y: auto;
+            padding: 6px;
+            background: rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--modal-border);
+            border-radius: 10px;
+        }
+        body.theme-light .plugins-compact-grid,
+        body.theme-ios-glass .plugins-compact-grid {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        .plugin-mini {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 8px;
+            border-radius: 7px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            font-size: 0.74rem;
+            min-width: 0;
+            transition: all 0.15s;
+        }
+        .plugin-mini:hover {
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+        }
+        .plugin-mini-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .plugin-mini-name {
+            color: var(--text-color);
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+            flex: 1;
+        }
+        .plugin-mini-ver {
+            color: var(--meta-color);
+            font-size: 0.65rem;
+            opacity: 0.7;
+            flex-shrink: 0;
+        }
+		.tools-empty {
+            color: var(--meta-color);
+            text-align: center;
+            padding: 16px 8px;
+            font-style: italic;
+            font-size: 0.78rem;
+            opacity: 0.75;
+            grid-column: 1 / -1;
+        }
+        .tools-card-hint {
+            color: var(--meta-color);
+            font-size: 0.7rem;
+            margin-top: 8px;
+            line-height: 1.5;
+            opacity: 0.75;
+        }
+        .tools-card-hint code {
+            background: var(--tag-bg);
+            color: var(--tag-color);
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.68rem;
+        }
+
+        @media (max-width: 720px) {
+            .tools-tab-grid { grid-template-columns: 1fr; }
+            .tools-card-full { grid-column: auto; }
+        }
+
+        /* highlight.js базовые цвета */
+        .hljs-keyword, .hljs-selector-tag { color: #c678dd; }
+        .hljs-string, .hljs-attr { color: #98c379; }
+        .hljs-number, .hljs-literal { color: #d19a66; }
+        .hljs-comment { color: #7a9ab5; font-style: italic; }
+        .hljs-function, .hljs-title { color: #61afef; }
+        .hljs-built_in, .hljs-type { color: #e5c07b; }
+        body.theme-light .hljs-keyword { color: #a626a4; }
+        body.theme-light .hljs-string { color: #50a14f; }
+        body.theme-light .hljs-number { color: #986801; }
+        body.theme-light .hljs-comment { color: #a0a1a7; }
+        body.theme-light .hljs-function, body.theme-light .hljs-title { color: #4078f2; }
+        body.theme-light .hljs-built_in, body.theme-light .hljs-type { color: #c18401; }
+
+        @media (max-width: 992px) {
+            .app-container { flex-direction: column; }
+            .sidebar { position: fixed; left: 0; top: 0; height: 100vh; max-height: 100vh; width: 280px !important; min-width: 280px !important; margin-right: 0 !important; border-radius: 0 16px 16px 0; z-index: 1001; transform: translateX(-100%); transition: transform 0.25s; opacity: 1 !important; padding: 16px 14px !important; pointer-events: auto !important; }
+            .sidebar.open { transform: translateX(0); }
+            .sidebar.collapsed { opacity: 1; }
+            .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; }
+            .sidebar-overlay.open { display: block; }
+            .burger-btn { display: block; }
+            .main-content { width: 100%; }
+            .cards-grid.cols-4, .cards-grid.cols-3 { column-count: 2; }
+            .cards-grid.manual-sort.cols-4 .card, .cards-grid.manual-sort.cols-3 .card { width: calc(50% - 8px); }
+            .sidebar-float-toggle { display: none; }
+            .link-actions .edit-btn, .link-actions .delete-btn { opacity: 1; }
+            .card-sort-btn, .rename-group-btn { opacity: 1 !important; pointer-events: auto !important; }
+            .bulk-checkbox-card, .bulk-checkbox { opacity: 1 !important; }
+            .link-display { white-space: normal; overflow: visible; overflow-wrap: anywhere; word-break: break-word; line-height: 1.4; }
+            .smart-link, .link-main { align-items: flex-start; }
+            .sticky-header, .card-header { position: static; }
+            .fab-add { width: 56px; height: 56px; right: 16px; bottom: 16px; font-size: 1.8rem; }
+            .settings-fab { top: 12px; right: 12px; width: 36px; height: 36px; font-size: 1rem; }
+            .settings-columns { grid-template-columns: 1fr; }
+            .cat-move-btn { opacity: 0.85; }
+        }
+        @media (max-width: 600px) {
+            body { padding: 12px 8px; font-size: 1.2rem; }
+            .page-header-card { padding: 18px 14px 14px; }
+            .page-title { font-size: 1.5rem; }
+            .page-title .title-icon { width: 1.5rem; height: 1.5rem; }
+            .page-sub { font-size: 0.7rem; letter-spacing: 2px; }
+            .page-sub::before, .page-sub::after { width: 30px; }
+            .page-hint { font-size: 0.6rem; margin-top: 8px; }
+            .topbar { flex-wrap: wrap; gap: 8px; padding: 10px; }
+            .search-wrapper { min-width: 100%; order: 5; }
+            .sort-buttons-top { order: 6; }
+            .cards-grid { column-count: 1 !important; padding-bottom: 88px; }
+            .cards-grid.manual-sort .card { width: 100% !important; }
+            .card-header { padding: 12px 14px 10px 14px; }
+            .card-title { font-size: 1rem; }
+            .links { padding: 10px; }
+            .link-item { padding: 8px 10px; }
+            .link-main { gap: 6px; }
+            .desc { padding-left: 68px; }
+            .link-meta { padding-left: 25px; }
+            .modal-content { padding: 18px; }
+            .modal-settings { padding: 0 !important; }
+            .settings-header, .settings-tabs, .settings-body { padding-left: 16px; padding-right: 16px; }
+            .settings-columns { grid-template-columns: 1fr; }
+            .bulk-panel { left: 8px; right: 8px; transform: translateY(20px); width: auto; }
+            .bulk-panel.show { transform: translateY(0); }
+            .donut-chart { width: 140px; height: 140px; }
+            .tags-bar-row { flex-wrap: wrap; }
+            .col-buttons-inline { margin-left: 0; width: 100%; justify-content: flex-end; }
+        }
+    </style>
+	<link rel="stylesheet" href="/static/themes.css?v={{ static_version|default('1') }}">
+    {# Кастомные темы — рендерим сразу, чтобы не мелькала базовая #}
+    {% if custom_themes %}
+    <style id="custom-themes-style">
+    {% for theme_id, theme in custom_themes.items() %}
+    body.theme-{{ theme_id }} {
+    {% for k, v in theme.vars.items() %}
+        {{ k }}: {{ v }};
+    {% endfor %}
+    }
+    {% endfor %}
+    </style>
+    {% endif %}
+    <!-- Подсветка кода — встроенная (static/app.js), без внешних CDN -->
+    {% for item in ui.styles %}{{ item.html|safe }}{% endfor %}
+    <script src="/static/app.js?v={{ static_version|default('1') }}" defer></script>
+    <script src="/static/plugin_runtime.js?v={{ static_version|default('1') }}" defer></script>
+    {% for item in ui.scripts %}{{ item.html|safe }}{% endfor %}
+</head>
+<body class="header-shimmer-{{ settings.get('header_shimmer', 'sweep') }}{% if not settings.get('card_shimmer', True) %} card-shimmer-off{% endif %}{{ ' header-anim-off' if not settings.get('header_anim', True) else '' }}{% if settings.get('header_shimmer', 'sweep') != 'off' %} has-header-shimmer{% endif %}">
+    <script>
+    /* =========================================================
+       FOUC-FIX: применяем все localStorage-настройки
+       до первой отрисовки body.
+       ========================================================= */
+    (function () {
+        try {
+            var html = document.documentElement;
+            var body = document.body;
+
+            /* 1. ТЕМА */
+            var theme = localStorage.getItem('reestr_theme') || 'dark';
+            if (theme && theme !== 'dark') {
+                body.classList.add('theme-' + theme);
+            }
+
+            /* 2. Размер шрифта */
+            var fs = localStorage.getItem('reestr_fontSize');
+            if (fs) html.style.fontSize = fs + 'px';
+
+            /* 3. Радиус углов */
+            var radius = localStorage.getItem('reestr_radius');
+            if (radius) html.style.setProperty('--radius-card', radius + 'px');
+
+            /* 4. Ширина сайдбара */
+            var sw = localStorage.getItem('reestr_sidebarWidth');
+            if (sw) html.style.setProperty('--sidebar-width', sw + 'px');
+
+            /* 5. Обои */
+            var wp = localStorage.getItem('reestr_wallpaper');
+            if (wp) {
+                body.style.backgroundImage =
+                    'linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.35)), url(' + wp + ')';
+                body.style.backgroundSize = 'cover';
+                body.style.backgroundAttachment = 'fixed';
+                body.style.backgroundPosition = 'center';
+            }
+
+            /* 6. Анимация шапки */
+            if (localStorage.getItem('reestr_headerAnim') === 'false') {
+                body.classList.add('header-anim-off');
+            }
+
+            /* 7. Компактный режим */
+            if (localStorage.getItem('reestr_compact') === 'true') {
+                body.classList.add('compact-mode');
+            }
+
+            /* 8. Режим презентации */
+            if (localStorage.getItem('reestr_presentation') === 'true') {
+                body.classList.add('presentation-mode');
+            }
+
+            /* 9. Mesh-фон (варианты) */
+            var mesh = localStorage.getItem('reestr_meshBg') || 'off';
+            if (mesh === 'true') mesh = 'float';
+            if (mesh === 'false') mesh = 'off';
+            var MESH_STYLES = ['float', 'pulse', 'rotate', 'wave', 'orbit', 'flash', 'aurora'];
+            if (mesh !== 'off' && MESH_STYLES.indexOf(mesh) !== -1) {
+                body.classList.add('mesh-bg-on');
+                body.classList.add('mesh-style-' + mesh);
+            }
+
+            /* 10. Полоса карточки */
+            var strip = localStorage.getItem('reestr_cardStrip') || 'left';
+            if (strip === 'gradient-half') strip = 'hover-fill';
+            var STRIPS = ['hover-fill','gradient-full','gradient-center','top','bottom','frame','off'];
+            if (STRIPS.indexOf(strip) !== -1) {
+                body.classList.add('strip-style-' + strip);
+            }
+
+            /* 11. Колонки */
+            var cols = localStorage.getItem('reestr_cols') || '2';
+            html.setAttribute('data-cols', cols);
+
+        } catch (e) {
+            console.error('[FOUC-fix]', e);
+        }
+    })();
+    </script>
+
+    <div class="loading-bar" id="loadingBar"></div>
+    <div class="loading-spinner" id="loadingSpinner">
+        <svg viewBox="0 0 40 40">
+            <circle class="bg" cx="20" cy="20" r="15"/>
+            <circle class="fg" cx="20" cy="20" r="15"/>
+        </svg>
+    </div>
+
+    <button class="fab-add" id="openAddModal" title="Добавить новую запись (Ctrl+M)">+</button>
+
+    <div class="app-container">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <span class="logo" title="Реестр ссылок">
+                    <svg class="logo-svg" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="logoStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#f5d76e"/>
+                                <stop offset="50%" stop-color="#f7b733"/>
+                                <stop offset="100%" stop-color="#f39c12"/>
+                            </linearGradient>
+                            <linearGradient id="logoFill" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#f5d76e" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#f39c12" stop-opacity="0.05"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="M22 3 L41 22 L22 41 L3 22 Z" fill="url(#logoFill)" stroke="url(#logoStroke)" stroke-width="2"/>
+                        <path d="M17 27 L27 17 M27 17 L20 17 M27 17 L27 24" fill="none" stroke="url(#logoStroke)" stroke-width="2.4" stroke-linecap="round"/>
+                    </svg>
+                </span>
+                <span class="logo-text">Реестр</span>
+                <div class="profile-widget" id="profileWidget" title="Профиль">
+                    <div class="profile-avatar" id="profileAvatar">A</div>
+                </div>
+                <button class="sidebar-toggle" id="sidebarToggle" title="Скрыть меню">◀</button>
+            </div>
+            <div class="sidebar-content">
+                <div class="sidebar-section">
+                    <button class="sidebar-action" id="filterFavBtn" title="Показать только избранное">
+                        <span>⭐</span><span>Избранное</span>
+                    </button>
+                </div>
+
+                <div class="sidebar-section categories-section" id="categoriesSection">
+                    <div class="sidebar-label">
+                        <span class="section-toggle" data-target="categoriesSection">
+                            <span class="section-chevron">▼</span>
+                            <span>🏷️ Категории</span>
+                        </span>
+                        <span class="cat-sort-buttons">
+                            <button class="cat-sort-btn" data-sort="name" title="А→Я">🔤</button>
+                            <button class="cat-sort-btn" data-sort="count" title="По количеству">🔢</button>
+                            <button class="cat-sort-btn" data-sort="manual" title="Ручной порядок">🔀</button>
+                            <button class="cat-manage-btn" id="manageCategoriesBtn" title="Управление категориями">⚙️</button>
+                        </span>
+                    </div>
+                    <div id="categoriesList">{{ sidebar_cats_html|safe }}</div>
+                </div>
+
+                {% if ui.sidebar %}
+                <div class="sidebar-section">
+                    {% for item in ui.sidebar %}
+                    <button class="sidebar-action"
+                            data-plugin-action="{{ item.action }}"
+                            data-plugin-modal="{{ item.modal_id or '' }}"
+                            data-plugin-url="{{ item.url or '' }}"
+                            data-plugin-js="{{ item.js or '' }}">
+                        <span>{{ item.icon or '🔗' }}</span><span>{{ item.label }}</span>
+                        {% if item.badge %}<span class="sidebar-badge">{{ item.badge }}</span>{% endif %}
+                    </button>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <div class="sidebar-section">
+                    <div class="sidebar-label">⌨️ Горячие клавиши</div>
+                    <div class="hotkeys-panel">
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Ctrl</kbd><span class="hotkey-plus">+</span><kbd>K</kbd></span><span class="hotkey-desc">Поиск</span></div>
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Ctrl</kbd><span class="hotkey-plus">+</span><kbd>M</kbd></span><span class="hotkey-desc">Новая запись</span></div>
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Ctrl</kbd><span class="hotkey-plus">+</span><kbd>Shift</kbd><span class="hotkey-plus">+</span><kbd>P</kbd></span><span class="hotkey-desc">Режим презентации</span></div>
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Ctrl</kbd><span class="hotkey-plus">+</span><kbd>Shift</kbd><span class="hotkey-plus">+</span><kbd>A</kbd></span><span class="hotkey-desc">Выделить всё</span></div>
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Ctrl</kbd><span class="hotkey-plus">+</span><kbd>Z</kbd></span><span class="hotkey-desc">Отменить удаление</span></div>
+                        <div class="hotkey-row"><span class="hotkey-keys"><kbd>Esc</kbd></span><span class="hotkey-desc">Закрыть / очистить</span></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <main class="main-content">
+            <div class="sticky-header">
+                <div class="page-header-card">
+                    <div class="page-title" title="Сбросить все фильтры и вернуться ко всем ссылкам">
+                        <span class="title-icon">
+                            <svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg">
+                                <defs>
+                                    <linearGradient id="hLogoStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#f5d76e"/>
+                                        <stop offset="100%" stop-color="#f39c12"/>
+                                    </linearGradient>
+                                    <linearGradient id="hLogoFill" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" stop-color="#f5d76e" stop-opacity="0.35"/>
+                                        <stop offset="100%" stop-color="#f39c12" stop-opacity="0.05"/>
+                                    </linearGradient>
+                                </defs>
+                                <path d="M22 3 L41 22 L22 41 L3 22 Z" fill="url(#hLogoFill)" stroke="url(#hLogoStroke)" stroke-width="2"/>
+                                <path d="M17 27 L27 17 M27 17 L20 17 M27 17 L27 24" fill="none" stroke="url(#hLogoStroke)" stroke-width="2.4" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        <span>Реестр полезных ссылок</span>
+                    </div>
+                    <div class="page-sub">быстрый доступ к важным ресурсам</div>
+                    <div class="page-hint">скопируйте ссылку и вставьте её в адресную строку Проводника — откроется в системе</div>
+                    <button class="settings-fab" id="openAppearanceModal" title="Настройки">⚙️</button>
+                </div>
+
+                <div class="topbar">
+                    <button class="burger-btn" id="burgerBtn" title="Меню">☰</button>
+                    <button class="sidebar-float-toggle" id="sidebarFloatToggle" title="Показать меню">☰</button>
+
+                    <div class="search-wrapper">
+                        <input type="text" class="search-input" id="searchInput"
+                               placeholder="🔍 Поиск (cat:Медиа fav:1 tag:api updated:>2026-01-01)"
+                               autocomplete="off">
+                        <div class="search-history" id="searchHistory">
+                            <div class="search-history-header">
+                                <span>История поиска</span>
+                                <span class="clear-history" id="clearSearchHistory">Очистить</span>
+                            </div>
+                            <div id="searchHistoryList"></div>
+                        </div>
+                    </div>
+
+                    <div class="sort-buttons-top">
+                        <button class="sort-btn" data-sort="name" title="По названию">🔤<span class="sort-arrow"></span></button>
+                        <button class="sort-btn" data-sort="category" title="По категориям">🏷️<span class="sort-arrow"></span></button>
+                        <button class="sort-btn" data-sort="date" title="По дате">📅<span class="sort-arrow"></span></button>
+                        <button class="sort-btn" data-sort="manual" title="Ручная">🔀<span class="sort-arrow"></span></button>
+                    </div>
+
+                    <button class="collapse-all-btn" id="collapseAllBtn" title="Свернуть/развернуть все">⇕</button>
+
+                    <div class="custom-toolbar-btns" id="customToolbarBtns"></div>
+                    {% for item in ui.topbar %}
+                    <button class="custom-toolbar-btn"
+                            data-plugin-action="{{ item.action }}"
+                            data-plugin-modal="{{ item.modal_id or '' }}"
+                            data-plugin-url="{{ item.url or '' }}"
+                            data-plugin-js="{{ item.js or '' }}">
+                        {{ item.icon or '' }} {{ item.label }}
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <div class="tags-bar-row">
+                    <div class="tags-bar" id="tagsBar" style="display:none;"></div>
+                    <div class="col-buttons-inline" id="viewButtons">
+                        <button class="col-btn" data-cols="1" title="1 колонка"><span class="col-bars"><span class="col-bar" style="height:12px;"></span></span></button>
+                        <button class="col-btn active" data-cols="2" title="2 колонки"><span class="col-bars"><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span></span></button>
+                        <button class="col-btn" data-cols="3" title="3 колонки"><span class="col-bars"><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span></span></button>
+                        <button class="col-btn" data-cols="4" title="4 колонки"><span class="col-bars"><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span><span class="col-bar" style="height:12px;"></span></span></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="manual-hint" id="manualHint">
+                🔀 Ручной режим: перетаскивайте карточки за заголовок. Порядок сохраняется автоматически.
+            </div>
+
+            <div class="cards-grid cols-2" id="cardsGrid">
+                {% if cards_html %}
+                    {{ cards_html|safe }}
+                {% else %}
+                    <div class="no-data">📭 Пока нет записей. Добавьте первую!</div>
+                {% endif %}
+            </div>
+
+            <div class="footer">📁 Данные хранятся в файле «реестр.xlsx»</div>
+        </main>
+    </div>
+
+    <div class="modal" id="addModal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h2>➕ Добавить новую запись</h2>
+            <form method="POST" action="/add" id="addForm">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <div class="form-group">
+                    <label for="category_add">Категория</label>
+                    <select id="category_add" name="category_select">{{ cat_options|safe }}</select>
+                    <input type="text" id="category_custom" name="category_custom" placeholder="или введите свою" style="margin-top:4px; display:none; font-size:0.9rem;">
+                    <input type="hidden" id="category_hidden" name="category" value="">
+                </div>
+                <div class="form-group">
+                    <label for="name">Название *</label>
+                    <div class="name-with-icon">
+                        <button type="button" class="icon-picker-btn" id="addIconPickerBtn" title="Иконка группы">📌</button>
+                        <input type="text" id="name" name="name" list="names-datalist" placeholder="например, Документация" required>
+                    </div>
+                    <datalist id="names-datalist">{{ datalist_options|safe }}</datalist>
+                </div>
+                <input type="hidden" id="add_group_icon" name="group_icon" value="">
+                <div class="form-group">
+                    <label for="link">Ссылка</label>
+                    <input type="text" id="link" name="link" placeholder="https://... или \\server\share (или оставьте пустым, если есть код)">
+                    <div id="duplicateWarn" style="display:none; margin-top:6px; padding:8px 10px; border-radius:8px; background:rgba(241,196,15,0.15); border:1px solid rgba(241,196,15,0.4); color:#f1c40f; font-size:0.85rem;"></div>
+                </div>
+                <div class="form-group">
+                    <label for="tags_add">Теги</label>
+                    <div class="tags-input-wrapper">
+                        <div class="tags-chips" id="tagsAddWrapper">
+                            <input type="text" class="tag-chip-input" id="tagsAddInput" placeholder="тег и Enter" autocomplete="off">
+                        </div>
+                        <div class="tags-suggestions" id="tagsAddSuggestions"></div>
+                    </div>
+                    <input type="hidden" id="tags_add" name="tags" value="">
+                </div>
+                <div class="form-group">
+                    <label for="desc">Описание</label>
+                    <textarea id="desc" name="desc" rows="4" placeholder="краткий комментарий"></textarea>
+                </div>
+                <div class="form-group code-editor-group">
+                    <div class="code-editor-head">
+                        <label>💻 Код (необязательно, но тогда нужна ссылка)</label>
+                        <select id="code_lang_add">
+                            <option value="">— язык —</option>
+                            <option value="python">Python</option>
+                            <option value="sql">SQL</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="json">JSON</option>
+                            <option value="bash">Bash</option>
+                            <option value="powershell">PowerShell</option>
+                            <option value="yaml">YAML</option>
+                            <option value="ini">INI / conf</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="xml">XML</option>
+                            <option value="plaintext">Другое</option>
+                        </select>
+                        <button type="button" class="code-editor-toggle" id="codeToggleBtnAdd">▼ Раскрыть</button>
+                    </div>
+                    <div class="code-editor-body" id="codeEditorBodyAdd">
+                        <textarea id="code_add" name="code" placeholder="Вставьте код (Python, SQL, ...) — он будет храниться вместе с записью" spellcheck="false"></textarea>
+                        <div class="code-editor-hint">
+                            Ссылку можно не указывать, если есть код. Запись появится с иконкой 🧩.
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="closeAddModalBtn">Отмена</button>
+                    <button type="submit" class="btn">💾 Добавить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="editModal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h2>✏️ Редактировать запись</h2>
+            <form id="editForm" method="POST">
+                <input type="hidden" id="edit_id" name="id">
+                <div class="form-group">
+                    <label for="edit_name">Название *</label>
+                    <input type="text" id="edit_name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit_link">Ссылка</label>
+                    <input type="text" id="edit_link" name="link" placeholder="https://... (или оставьте пустым, если есть код)">
+                </div>
+                <div class="form-group">
+                    <label for="tags_edit">Теги</label>
+                    <div class="tags-input-wrapper">
+                        <div class="tags-chips" id="tagsEditWrapper">
+                            <input type="text" class="tag-chip-input" id="tagsEditInput" placeholder="тег и Enter" autocomplete="off">
+                        </div>
+                        <div class="tags-suggestions" id="tagsEditSuggestions"></div>
+                    </div>
+                    <input type="hidden" id="tags_edit" name="tags" value="">
+                </div>
+                <div class="form-group">
+                    <label for="edit_desc">Описание</label>
+                    <textarea id="edit_desc" name="desc" rows="4"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="edit_category">Категория</label>
+                    <select id="edit_category" name="category_select">{{ cat_options|safe }}</select>
+                    <input type="text" id="edit_category_custom" name="category_custom" placeholder="или введите свою" style="margin-top:4px; display:none; font-size:0.9rem;">
+                    <input type="hidden" id="edit_category_hidden" name="category" value="">
+                </div>
+                <div class="form-group code-editor-group">
+                    <div class="code-editor-head">
+                        <label>💻 Код</label>
+                        <select id="code_lang_edit">
+                            <option value="">— язык —</option>
+                            <option value="python">Python</option>
+                            <option value="sql">SQL</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="json">JSON</option>
+                            <option value="bash">Bash</option>
+                            <option value="powershell">PowerShell</option>
+                            <option value="yaml">YAML</option>
+                            <option value="ini">INI / conf</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="xml">XML</option>
+                            <option value="plaintext">Другое</option>
+                        </select>
+                        <button type="button" class="code-editor-toggle" id="codeToggleBtnEdit">▼ Раскрыть</button>
+                    </div>
+                    <div class="code-editor-body" id="codeEditorBodyEdit">
+                        <textarea id="code_edit" name="code" placeholder="Код (Python, SQL, ...)" spellcheck="false"></textarea>
+                    </div>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" id="closeEditModalBtn">Отмена</button>
+                    <button type="submit" class="btn">💾 Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal" id="categoriesModal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h2>✏️ Управление категориями</h2>
+            <p style="color:var(--meta-color); font-size:0.85rem; margin-bottom:12px; line-height:1.4;">
+                Порядок задаётся кнопками <b>▲ / ▼</b>. Также можно переименовать, сменить цвет или удалить категорию.
+            </p>
+            <div class="category-list" id="categoryList">
+                <p style="color:var(--meta-color); text-align:center; padding:20px 0;">Загрузка...</p>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="closeCategoriesModalBtn">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="categoryPickerModal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h2 id="categoryPickerTitle">🏷️ Перенести в категорию</h2>
+            <div class="category-picker-list" id="categoryPickerList"></div>
+            <div class="category-picker-new">
+                <input type="text" id="categoryPickerNewInput" placeholder="Новая категория..." maxlength="100">
+                <button type="button" id="categoryPickerCreateBtn">➕ Создать и перенести</button>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="categoryPickerCancelBtn">Отмена</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="confirmModal" role="dialog" aria-modal="true">
+        <div class="modal-content confirm-content">
+            <h2 id="confirmTitle">⚠️ Подтвердите действие</h2>
+            <div class="confirm-message" id="confirmMessage">Вы уверены?</div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="confirmCancelBtn">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmOkBtn">Подтвердить</button>
+            </div>
+        </div>
+    </div>
+
+	<div class="modal" id="storageSettingsModal" role="dialog" aria-modal="true" style="z-index: 1300;">
+        <div class="modal-content" style="max-width:640px;">
+            <h2>🗄️ Источник данных</h2>
+
+            <div id="storageInfoBox" style="background:var(--input-bg); border:1px solid var(--card-border); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.85rem; line-height:1.6;">
+                <div style="color:var(--meta-color); text-align:center;">Загрузка...</div>
+            </div>
+
+            <div class="form-group">
+                <label for="dataBackendSelect">Хранилище</label>
+                <select id="dataBackendSelect">
+                    <option value="xlsx">📊 XLSX-файл (классика)</option>
+                    <option value="sqlite">🗄️ SQLite (рекомендуется для сети)</option>
+                </select>
+                <div style="color:var(--meta-color); font-size:0.75rem; margin-top:4px;">
+                    После смены бэкенда <b>перезапустите сервер</b>. При первом запуске SQLite
+                    данные автоматически импортируются из XLSX.
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="dataSourceInput">Путь к XLSX-файлу (пусто — по умолчанию)</label>
+                <input type="text" id="dataSourceInput" placeholder="\\server\share\реестр.xlsx  или  D:\data\реестр.xlsx" style="font-family:monospace; font-size:0.9rem;">
+                <div style="color:var(--meta-color); font-size:0.75rem; margin-top:4px;">
+                    Поддерживаются локальные и UNC-пути. Пример: <code>\\nas\share\reestr.xlsx</code>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="sqlitePathInput">Путь к SQLite-файлу (пусто — по умолчанию)</label>
+                <input type="text" id="sqlitePathInput" placeholder="reestr.db" style="font-family:monospace; font-size:0.9rem;">
+            </div>
+
+            <div class="form-group">
+                <label for="codeCollapsedInput">Показывать строк кода (компактно)</label>
+                <input type="number" id="codeCollapsedInput" min="1" max="50" value="5" style="max-width:100px;">
+            </div>
+
+            <div class="form-group">
+                <label class="toggle-row" for="codeHighlightToggle" style="margin-top:4px;">
+                    <input type="checkbox" id="codeHighlightToggle" checked>
+                    <span class="toggle-label">Подсвечивать синтаксис (highlight.js)</span>
+                </label>
+            </div>
+
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
+                <button type="button" class="data-btn" id="migrateXlsxToSqliteBtn" style="flex:1; justify-content:center;">
+                    <span class="data-icon">📥</span><span>Импорт XLSX → SQLite</span>
+                </button>
+                <button type="button" class="data-btn" id="migrateSqliteToXlsxBtn" style="flex:1; justify-content:center;">
+                    <span class="data-icon">📤</span><span>Экспорт SQLite → XLSX</span>
+                </button>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closePluginModal('storageSettingsModal')">Закрыть</button>
+                <button type="button" class="btn" id="saveStorageSettingsBtn">💾 Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="appearanceModal" role="dialog" aria-modal="true">
+        <div class="modal-content modal-settings">
+            <div class="settings-header">
+                <h2>⚙️ Настройки</h2>
+                <button type="button" class="modal-close-btn" id="closeAppearanceModalBtn" title="Закрыть">✕</button>
+            </div>
+
+            <div class="settings-tabs" role="tablist">
+                <button type="button" class="settings-tab active" data-tab="tab-appearance">🎨 Оформление</button>
+                <button type="button" class="settings-tab" data-tab="tab-tools">🔧 Инструменты</button>
+                <button type="button" class="settings-tab" data-tab="tab-plugins">🔌 Плагины</button>
+            </div>
+
+            <div class="settings-body">
+                <div class="settings-panel active" id="tab-appearance">
+                    <div class="settings-columns">
+                        <div class="settings-column">
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🌗</span><span>Тема</span></div>
+                                <div class="theme-selector" id="themeSelector">
+                                    <button class="theme-dot" data-theme="dark" title="Тёмная"></button>
+                                    <button class="theme-dot" data-theme="light" title="Светлая"></button>
+                                    <button class="theme-dot" data-theme="black" title="Чёрная"></button>
+                                    <button class="theme-dot" data-theme="cinema" title="Кинематограф"></button>
+                                    <button class="theme-dot" data-theme="neon" title="Neon Dashboard"></button>
+                                    <button class="theme-dot" data-theme="material" title="Material Night"></button>
+                                    <button class="theme-dot" data-theme="material-glass" title="Material Glass"></button>
+                                    <button class="theme-dot" data-theme="neumorphism-dark" title="Neumorphism Dark"></button>
+                                    <button class="theme-dot" data-theme="material-you" title="Material You"></button>
+                                    <button class="theme-dot" data-theme="ios-glass" title="iOS стекло"></button>
+                                    <button class="theme-dot" data-theme="midnight" title="Полночь"></button>
+                                    <button class="theme-dot" data-theme="ocean" title="Океан"></button>
+                                    <button class="theme-dot" data-theme="nord" title="Nord"></button>
+                                    <button class="theme-dot" data-theme="solarized" title="Solarized"></button>
+                                    <button class="theme-dot" data-theme="dracula" title="Dracula"></button>
+                                    <button class="theme-dot" data-theme="gruvbox" title="Gruvbox"></button>
+                                </div>
+                            </div>
+
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>📏</span><span>Ширина сайдбара</span></div>
+                                <div class="font-slider-row">
+                                    <input type="range" id="sidebarWidthSlider" min="200" max="420" value="260" step="10">
+                                    <span class="font-size-badge" id="sidebarWidthVal">260</span>
+                                </div>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🔤</span><span>Размер шрифта</span></div>
+                                <div class="font-slider-row">
+                                    <input type="range" id="fontSizeSlider" min="8" max="22" value="14" step="1">
+                                    <span class="font-size-badge" id="fontSizeVal">14</span>
+                                </div>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>⭕</span><span>Радиус углов</span></div>
+                                <div class="font-slider-row">
+                                    <input type="range" id="radiusSlider" min="0" max="30" value="16" step="1">
+                                    <span class="font-size-badge" id="radiusVal">16</span>
+                                </div>
+                            </div>
+
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🖼️</span><span>Обои</span></div>
+                                <div class="wallpaper-row">
+                                    <label class="data-btn wallpaper-upload" for="wallpaperInput">
+                                        <span class="data-icon">📁</span><span>Загрузить</span>
+                                    </label>
+                                    <button type="button" class="data-btn wallpaper-clear" id="wallpaperClearBtn" title="Убрать">🗑</button>
+                                </div>
+                                <input type="file" id="wallpaperInput" accept="image/*">
+                            </div>
+
+                            {% for item in ui.appearance_tab %}
+                            <div class="appearance-group">
+                                {{ item.html|safe }}
+                            </div>
+                            {% endfor %}
+                        </div>
+
+                        <div class="settings-column">
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🔲</span><span>Контур шапки</span></div>
+                                <label class="toggle-row" for="headerAnimToggle">
+                                    <input type="checkbox" id="headerAnimToggle" checked>
+                                    <span class="toggle-label">Анимация рамки</span>
+                                </label>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>✨</span><span>Перелив шапки</span></div>
+                                <select id="headerShimmerSelect">
+                                    <option value="sweep">🌟 Протяжка</option>
+                                    <option value="shine">✨ Блик</option>
+                                    <option value="breath">💫 Дыхание</option>
+                                    <option value="wave">🌊 Волна</option>
+                                    <option value="aurora">🌌 Аврора</option>
+                                    <option value="off">⊘ Выключено</option>
+                                </select>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>⚡</span><span>Скорость</span></div>
+                                <div class="col-buttons" id="shimmerSpeedGroup">
+                                    <button class="col-btn" data-speed="slow"><span class="col-num">медл</span></button>
+                                    <button class="col-btn active" data-speed="normal"><span class="col-num">норм</span></button>
+                                    <button class="col-btn" data-speed="fast"><span class="col-num">быстро</span></button>
+                                </div>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🌈</span><span>Интенсивность</span></div>
+                                <div class="col-buttons" id="shimmerIntensityGroup">
+                                    <button class="col-btn" data-intensity="0.5"><span class="col-num">0.5×</span></button>
+                                    <button class="col-btn active" data-intensity="1"><span class="col-num">1×</span></button>
+                                    <button class="col-btn" data-intensity="1.5"><span class="col-num">1.5×</span></button>
+                                </div>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🎨</span><span>Цвет перелива</span></div>
+                                <div class="color-picker-row">
+                                    <label>Цвет 1</label>
+                                    <input type="color" id="shimmerColor1" value="#f5d76e">
+                                </div>
+                                <div class="color-picker-row">
+                                    <label>Цвет 2</label>
+                                    <input type="color" id="shimmerColor2" value="#f39c12">
+                                </div>
+                                <div class="color-picker-row">
+                                    <button id="shimmerResetBtn" type="button">↺ По умолчанию</button>
+                                </div>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🎴</span><span>Перелив карточек</span></div>
+                                <label class="toggle-row" for="cardShimmerToggle">
+                                    <input type="checkbox" id="cardShimmerToggle" checked>
+                                    <span class="toggle-label">Показывать при наведении</span>
+                                </label>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>▬</span><span>Полоса карточки</span></div>
+                                <select id="cardStripSelect">
+                                    <option value="left">◀ Классика (слева)</option>
+                                    <option value="hover-fill">✨ Полоса + заливка при наведении</option>
+                                    <option value="gradient-full">▬▬ Растворение по всей ширине</option>
+                                    <option value="gradient-center">⇥⇤ Симметрия из центра</option>
+                                    <option value="top">▲ Сверху</option>
+                                    <option value="bottom">▼ Снизу</option>
+                                    <option value="frame">◻ Рамка</option>
+                                    <option value="off">⊘ Выключено</option>
+                                </select>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>🌌</span><span>Анимированный фон</span></div>
+                                <select id="meshBgSelect">
+                                    <option value="off">⊘ Выключено</option>
+                                    <option value="float">🌊 Плавание</option>
+                                    <option value="pulse">💫 Пульсация</option>
+                                    <option value="rotate">🌀 Вращение</option>
+                                    <option value="wave">〰️ Волны</option>
+                                    <option value="orbit">🌍 Орбита</option>
+                                    <option value="flash">⚡ Вспышки</option>
+                                    <option value="aurora">🌌 Аврора</option>
+                                </select>
+                            </div>
+                            <div class="appearance-group">
+                                <div class="appearance-title"><span>✨</span><span>Прочие эффекты</span></div>
+                                <label class="toggle-row" for="compactModeToggle">
+                                    <input type="checkbox" id="compactModeToggle">
+                                    <span class="toggle-label">Компактный режим</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+				<div class="settings-panel" id="tab-tools">
+					<div class="tools-tab-grid">
+
+						<!-- ============ ИНСТРУМЕНТЫ ============ -->
+						<div class="tools-card">
+							<div class="tools-card-head">
+								<span class="tools-card-icon">🛠️</span>
+								<div class="tools-card-titles">
+									<div class="tools-card-title">Инструменты</div>
+									<div class="tools-card-sub">Действия и анализ</div>
+								</div>
+							</div>
+							<div class="tools-card-body">
+								<button class="data-btn" id="presentationBtn" title="Режим презентации (Ctrl+Shift+P)">
+									<span class="data-icon">🎬</span>
+									<span class="data-btn-text">
+										<span class="data-btn-label">Режим презентации</span>
+										<span class="data-btn-hint">Скрыть всё лишнее</span>
+									</span>
+								</button>
+								{% for item in ui.tools_tab %}
+								<button class="data-btn"
+										data-plugin-action="{{ item.action }}"
+										data-plugin-modal="{{ item.modal_id or '' }}"
+										data-plugin-url="{{ item.url or '' }}"
+										data-plugin-js="{{ item.js or '' }}">
+									<span class="data-icon">{{ item.icon or '🔗' }}</span>
+									<span class="data-btn-text">
+										<span class="data-btn-label">{{ item.label }}</span>
+									</span>
+								</button>
+								{% endfor %}
+							</div>
+						</div>
+
+						<!-- ============ ДАННЫЕ ============ -->
+						<div class="tools-card">
+							<div class="tools-card-head">
+								<span class="tools-card-icon">💾</span>
+								<div class="tools-card-titles">
+									<div class="tools-card-title">Данные</div>
+									<div class="tools-card-sub">Импорт · Экспорт · Источник</div>
+								</div>
+							</div>
+							<div class="tools-card-body">
+								{% if ui.data_tab %}
+								<div class="tools-card-subhead">📥 Импорт</div>
+								<div class="tools-compact-btns">
+									{% for item in ui.data_tab %}
+									{% set is_import = 'импорт' in item.label|lower or 'import' in item.id|lower %}
+									{% if is_import %}
+									<button class="data-btn data-btn-compact"
+											data-plugin-action="{{ item.action }}"
+											data-plugin-modal="{{ item.modal_id or '' }}"
+											data-plugin-url="{{ item.url or '' }}"
+											data-plugin-js="{{ item.js or '' }}"
+											title="{{ item.label }}">
+										<span class="data-icon">{{ item.icon or '🔗' }}</span>
+										<span class="data-btn-text">
+											<span class="data-btn-label">{{ item.label }}</span>
+										</span>
+									</button>
+									{% endif %}
+									{% endfor %}
+								</div>
+
+								<div class="tools-card-subhead" style="margin-top:10px;">📤 Экспорт</div>
+								<div class="tools-compact-btns">
+									{% for item in ui.data_tab %}
+									{% set is_import = 'импорт' in item.label|lower or 'import' in item.id|lower %}
+									{% if not is_import %}
+									<button class="data-btn data-btn-compact"
+											data-plugin-action="{{ item.action }}"
+											data-plugin-modal="{{ item.modal_id or '' }}"
+											data-plugin-url="{{ item.url or '' }}"
+											data-plugin-js="{{ item.js or '' }}"
+											title="{{ item.label }}">
+										<span class="data-icon">{{ item.icon or '🔗' }}</span>
+										<span class="data-btn-text">
+											<span class="data-btn-label">{{ item.label }}</span>
+										</span>
+									</button>
+									{% endif %}
+									{% endfor %}
+								</div>
+								{% endif %}
+
+								<div class="tools-card-divider"></div>
+
+								<div class="tools-card-subhead">🗄️ Хранилище</div>
+								<button class="data-btn data-btn-accent" id="openStorageSettingsBtn">
+									<span class="data-icon">🗄️</span>
+									<span class="data-btn-text">
+										<span class="data-btn-label">Источник данных</span>
+										<span class="data-btn-hint">XLSX или SQLite · миграция · пути</span>
+									</span>
+								</button>
+							</div>
+						</div>
+
+						<!-- ============ ПЛАГИНЫ (на всю ширину, в несколько колонок) ============ -->
+						<div class="tools-card tools-card-full">
+							<div class="tools-card-head">
+								<span class="tools-card-icon">🔌</span>
+								<div class="tools-card-titles">
+									<div class="tools-card-title">Плагины</div>
+									<div class="tools-card-sub">Активные расширения реестра</div>
+								</div>
+								<button class="tools-card-action" id="pluginsRefreshBtnCompact" title="Обновить">🔄</button>
+							</div>
+							<div class="tools-card-body">
+								<div id="pluginsList" class="plugins-compact-grid">
+									<div class="tools-empty">Загрузка...</div>
+								</div>
+								<div class="tools-card-hint">
+									Положите <code>.py</code> в <code>plugins/</code> и нажмите «🔁 Перезагрузить» на вкладке «🔌 Плагины».
+								</div>
+							</div>
+						</div>
+
+					</div>
+				</div>
+
+                <div class="settings-panel" id="tab-plugins">
+                    <div class="plugins-toolbar">
+                        <button class="data-btn" id="pluginsRefreshBtn" style="flex:1; justify-content:center;">
+                            <span class="data-icon">🔄</span><span>Обновить</span>
+                        </button>
+                        <button class="data-btn" id="pluginsCreateBtn" style="flex:1; justify-content:center;">
+                            <span class="data-icon">➕</span><span>Создать плагин</span>
+                        </button>
+                        <button class="data-btn" id="reloadPluginsBtn" style="flex:1; justify-content:center;">
+                            <span class="data-icon">🔁</span><span>Перезагрузить</span>
+                        </button>
+                    </div>
+                    <div id="pluginsManagerList" class="plugins-manager-list">
+                        <div style="color:var(--meta-color); text-align:center; padding:14px 0;">Загрузка...</div>
+                    </div>
+                    <div style="color:var(--meta-color); font-size:0.72rem; margin-top:10px; line-height:1.5;">
+                        Хуки перезагружаются полностью. Новые роуты — тоже. Старые роуты от изменённых плагинов остаются до перезапуска сервера.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="settingsModal" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h2>⚙️ Профиль</h2>
+            <div class="form-group">
+                <label>👤 Имя профиля</label>
+                <input type="text" id="profileNameInput" maxlength="50" placeholder="Admin">
+            </div>
+            <div class="form-group">
+                <label>🎨 Цвет аватара</label>
+                <input type="color" id="profileColorInput" value="#f5d76e" style="width:80px; height:40px;">
+            </div>
+            <div class="form-group">
+                <label>🔘 Кастомные кнопки в тулбаре</label>
+                <div id="customButtonsList"></div>
+                <button type="button" class="btn-secondary" id="addCustomBtn" style="padding:6px 14px; border-radius:12px; margin-top:6px; cursor:pointer; background:rgba(128,128,128,0.15); color:var(--text-color); border:none;">➕ Добавить кнопку</button>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="closeSettingsModalBtn">Отмена</button>
+                <button type="button" class="btn" id="saveSettingsBtn">💾 Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="emojiPickerModal" role="dialog" aria-modal="true">
+        <div class="modal-content" style="max-width:560px;">
+            <h2>🎨 Иконка группы</h2>
+            <div style="display:flex; align-items:center; gap:12px; padding:12px 14px; background:var(--input-bg); border-radius:12px; margin-bottom:14px;">
+                <span id="emojiPreview" style="font-size:2.2rem; width:48px; height:48px; display:flex; align-items:center; justify-content:center; background:var(--filter-btn-active-bg); border-radius:10px;">📌</span>
+                <div style="flex:1; min-width:0;">
+                    <div id="emojiGroupName" style="font-weight:600;">—</div>
+                    <div style="color:var(--meta-color); font-size:0.75rem;">Выберите из сетки или введите свой</div>
+                </div>
+            </div>
+            <div style="display:flex; gap:8px; margin-bottom:14px;">
+                <input type="text" id="emojiCustomInput" placeholder="Свой эмодзи или текст" maxlength="8" style="flex:1; padding:8px 12px; border:1px solid var(--input-border); border-radius:10px; background:var(--input-bg); color:var(--text-color); outline:none;">
+                <button type="button" id="emojiApplyCustomBtn" style="background:var(--btn-gradient); color:var(--btn-text); border:none; padding:8px 18px; border-radius:10px; cursor:pointer; font-weight:600;">Применить</button>
+            </div>
+            <div id="emojiCategories" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;"></div>
+            <div id="emojiGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(42px, 1fr)); gap:4px; max-height:320px; overflow-y:auto; padding:4px; background:var(--input-bg); border-radius:10px;"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="emojiResetBtn">↺ Сбросить (📌)</button>
+                <button type="button" class="btn btn-secondary" id="closeEmojiPickerBtn">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="pluginEditorModal" role="dialog" aria-modal="true">
+        <div class="modal-content modal-wide" style="max-width: 920px;">
+            <h2>✏️ Редактор плагина</h2>
+            <div class="form-group">
+                <label for="pluginEditorName">Имя плагина (без .py)</label>
+                <input type="text" id="pluginEditorName" placeholder="my_plugin" maxlength="64" style="font-family:monospace;">
+            </div>
+            <div class="form-group">
+                <label for="pluginEditorCode">Код</label>
+                <textarea id="pluginEditorCode" class="plugin-editor-code" spellcheck="false"></textarea>
+            </div>
+            <div id="pluginEditorStatus" class="plugin-editor-status"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="pluginEditorCloseBtn">Закрыть</button>
+                <button type="button" class="btn btn-secondary" id="pluginEditorCheckBtn">✓ Проверить</button>
+                <button type="button" class="btn" id="pluginEditorSaveBtn">💾 Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    {% for item in ui.modals %}
+    <div class="modal" id="{{ item.id }}" data-plugin-modal="1" role="dialog" aria-modal="true">
+        <div class="modal-content{% if item.width == 'wide' %} modal-wide{% endif %}">
+            <h2>{{ item.title }}</h2>
+            {{ item.html|safe }}
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="bulk-panel" id="bulkPanel">
+        <span class="bulk-panel-info">Выбрано: <span class="bulk-num" id="bulkCount">0</span></span>
+        <button class="bulk-btn" id="bulkFavoriteBtn">⭐ В избранное</button>
+        <button class="bulk-btn" id="bulkUnfavoriteBtn">☆ Из избранного</button>
+        <button class="bulk-btn" id="bulkMoveBtn">🏷️ Переместить</button>
+        <button class="bulk-btn" id="bulkTagBtn">🔖 Тег</button>
+        <button class="bulk-btn" id="bulkGroupIconBtn">🎨 Иконка группы</button>
+        <button class="bulk-btn" id="bulkExportBtn">💾 Экспорт</button>
+        <button class="bulk-btn danger" id="bulkDeleteBtn">🗑 Удалить</button>
+        <button class="bulk-btn" id="bulkClearBtn">✖ Снять</button>
+    </div>
+
+    <div class="link-tooltip" id="linkTooltip"></div>
+    <div class="notification" id="notification" role="status" aria-live="polite"></div>
+    <div class="undo-toast" id="undoToast" role="status" aria-live="polite">
+        <span id="undoToastText">Запись удалена</span>
+        <button id="undoToastBtn">Отменить</button>
+    </div>
+
+    <script>
+        window.REESTR_DATA = {
+            total: {{ total }},
+            trash_count: {{ trash_count }},
+            category_manual_order: {{ manual_category_order|tojson }},
+            all_tags: {{ all_tags|tojson }},
+            category_colors: {{ category_colors|tojson }},
+            settings: {{ settings|tojson }}
+        };
+        window.REESTR_CSRF = {{ csrf_token|tojson }};
+    </script>
+</body>
+</html>
