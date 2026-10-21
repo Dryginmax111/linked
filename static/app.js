@@ -1594,37 +1594,20 @@ function initMain() {
     });
     if (!categoryFound) lsSet(LS_KEYS.activeCategory, 'all');
 
-    /* ---------- Favorites ---------- */
+        /* ---------- Favorites (только восстановление визуального состояния) ----------
+       Обработчик клика — в bindCriticalUI (делегирование).
+       Раньше здесь был ещё один addEventListener, из-за чего:
+       — клик по «Избранное» переключал класс дважды (toggle → toggle);
+       — applyFilters вызывался дважды с противоречивыми состояниями.
+    */
     if (filterFavBtn) {
         const savedShowFav = lsGet(LS_KEYS.showFavorites, 'false') === 'true';
         if (savedShowFav) {
             filterFavBtn.classList.add('active');
             document.querySelectorAll('.cat-btn').forEach(function(b) { b.classList.remove('active'); });
         }
-        filterFavBtn.addEventListener('click', function() {
-            this.classList.toggle('active');
-            const isActive = this.classList.contains('active');
-            lsSet(LS_KEYS.showFavorites, isActive ? 'true' : 'false');
-            if (isActive) document.querySelectorAll('.cat-btn').forEach(function(b) { b.classList.remove('active'); });
-            else {
-                const activeCat = lsGet(LS_KEYS.activeCategory, 'all');
-                document.querySelectorAll('.cat-btn').forEach(function(b) {
-                    if (b.getAttribute('data-filter') === activeCat) b.classList.add('active');
-                });
-            }
-            applyFilters(); closeMobileSidebar();
-        });
     }
-    document.querySelectorAll('.cat-btn').forEach(function(btn) {
-        btn.addEventListener('click', function() {
-            if (filterFavBtn) filterFavBtn.classList.remove('active');
-            lsSet(LS_KEYS.showFavorites, 'false');
-            document.querySelectorAll('.cat-btn').forEach(function(b) { b.classList.remove('active'); });
-            this.classList.add('active');
-            lsSet(LS_KEYS.activeCategory, this.getAttribute('data-filter'));
-            applyFilters(); closeMobileSidebar();
-        });
-    });
+    /* Категории: обработчик клика — в bindCriticalUI (делегирование). */
 
     /* ---------- Search ---------- */
     const savedSearch = lsGet(LS_KEYS.searchQuery, '');
