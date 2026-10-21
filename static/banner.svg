@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="400" viewBox="0 0 900 400" font-family="Segoe UI, Arial, sans-serif">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0f172a"/><stop offset="1" stop-color="#1e293b"/></linearGradient>
+<linearGradient id="acc" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#38bdf8"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.45"/></filter>
+</defs>
+<rect width="900" height="400" rx="18" fill="url(#bg)"/>
+<g opacity="0.07" stroke="#38bdf8"><path d="M0 60 H900 M0 120 H900 M0 180 H900 M0 240 H900 M0 300 H900 M100 0 V400 M200 0 V400 M300 0 V400 M400 0 V400 M500 0 V400 M600 0 V400 M700 0 V400 M800 0 V400"/></g>
+<text x="450" y="66" text-anchor="middle" font-size="34" font-weight="700" fill="#f8fafc">&#128204; &#1056;&#1077;&#1077;&#1089;&#1090;&#1088; &#1087;&#1086;&#1083;&#1077;&#1079;&#1085;&#1099;&#1093; &#1089;&#1089;&#1099;&#1083;&#1086;&#1082;</text>
+<text x="450" y="100" text-anchor="middle" font-size="16" fill="#94a3b8">Flask + openpyxl &#183; Embedded Python 3.13 &#183; &#1089;&#1080;&#1089;&#1090;&#1077;&#1084;&#1072; &#1087;&#1083;&#1072;&#1075;&#1080;&#1085;&#1086;&#1074; &#1085;&#1072; &#1093;&#1091;&#1082;&#1072;&#1093;</text>
+<rect x="60" y="135" width="230" height="200" rx="14" fill="#1e293b" stroke="#334155" filter="url(#sh)"/>
+<rect x="60" y="135" width="230" height="8" rx="4" fill="url(#acc)"/>
+<text x="175" y="177" text-anchor="middle" font-size="18" font-weight="600" fill="#e2e8f0">&#128457;&#65039; &#1044;&#1072;&#1085;&#1085;&#1099;&#1077;</text>
+<text x="175" y="209" text-anchor="middle" font-size="13" fill="#94a3b8">Excel-&#1093;&#1088;&#1072;&#1085;&#1080;&#1083;&#1080;&#1097;&#1077;</text>
+<text x="175" y="231" text-anchor="middle" font-size="13" fill="#94a3b8">&#1082;&#1072;&#1090;&#1077;&#1075;&#1086;&#1088;&#1080;&#1080; &#183; &#1090;&#1077;&#1075;&#1080; &#183; &#1090;&#1077;&#1084;&#1099;</text>
+<text x="175" y="253" text-anchor="middle" font-size="13" fill="#94a3b8">&#1082;&#1086;&#1088;&#1079;&#1080;&#1085;&#1072; &#1080; Undo</text>
+<text x="175" y="275" text-anchor="middle" font-size="13" fill="#94a3b8">&#1089;&#1090;&#1072;&#1090;&#1080;&#1089;&#1090;&#1080;&#1082;&#1072; &#183; &#1101;&#1082;&#1089;&#1087;&#1086;&#1088;&#1090;</text>
+<text x="175" y="305" text-anchor="middle" font-size="12" fill="#64748b">&#1088;&#1077;&#1077;&#1089;&#1090;&#1088;.xlsx</text>
+<rect x="335" y="135" width="230" height="200" rx="14" fill="#1e293b" stroke="#334155" filter="url(#sh)"/>
+<rect x="335" y="135" width="230" height="8" rx="4" fill="url(#acc)"/>
+<text x="450" y="177" text-anchor="middle" font-size="18" font-weight="600" fill="#e2e8f0">&#9881;&#65039; &#1071;&#1076;&#1088;&#1086;</text>
+<text x="450" y="209" text-anchor="middle" font-size="13" fill="#94a3b8">REST API + CSRF</text>
+<text x="450" y="231" text-anchor="middle" font-size="13" fill="#94a3b8">hot-reload &#1087;&#1083;&#1072;&#1075;&#1080;&#1085;&#1086;&#1074;</text>
+<text x="450" y="253" text-anchor="middle" font-size="13" fill="#94a3b8">20+ &#1093;&#1091;&#1082;&#1086;&#1074; &#1089;&#1086;&#1073;&#1099;&#1090;&#1080;&#1081;</text>
+<text x="450" y="275" text-anchor="middle" font-size="13" fill="#94a3b8">UI-&#1089;&#1083;&#1086;&#1090;&#1099; &#1074; &#1080;&#1085;&#1090;&#1077;&#1088;&#1092;&#1077;&#1081;&#1089;&#1077;</text>
+<text x="450" y="305" text-anchor="middle" font-size="12" fill="#64748b">app.py &#183; plugins_loader.py</text>
+<rect x="610" y="135" width="230" height="200" rx="14" fill="#1e293b" stroke="#334155" filter="url(#sh)"/>
+<rect x="610" y="135" width="230" height="8" rx="4" fill="url(#acc)"/>
+<text x="725" y="177" text-anchor="middle" font-size="18" font-weight="600" fill="#e2e8f0">&#128268; &#1055;&#1083;&#1072;&#1075;&#1080;&#1085;&#1099;</text>
+<text x="725" y="209" text-anchor="middle" font-size="13" fill="#94a3b8">&#1080;&#1084;&#1087;&#1086;&#1088;&#1090; / &#1101;&#1082;&#1089;&#1087;&#1086;&#1088;&#1090;</text>
+<text x="725" y="231" text-anchor="middle" font-size="13" fill="#94a3b8">&#1087;&#1088;&#1086;&#1074;&#1077;&#1088;&#1082;&#1072; &#1089;&#1089;&#1099;&#1083;&#1086;&#1082;</text>
+<text x="725" y="253" text-anchor="middle" font-size="13" fill="#94a3b8">&#1072;&#1074;&#1090;&#1086;-&#1090;&#1077;&#1075;&#1080;&#1088;&#1086;&#1074;&#1072;&#1085;&#1080;&#1077;</text>
+<text x="725" y="275" text-anchor="middle" font-size="13" fill="#94a3b8">&#1088;&#1077;&#1076;&#1072;&#1082;&#1090;&#1086;&#1088; &#1082;&#1086;&#1076;&#1072; &#1074; &#1073;&#1088;&#1072;&#1091;&#1079;&#1077;&#1088;&#1077;</text>
+<text x="725" y="305" text-anchor="middle" font-size="12" fill="#64748b">plugins/*.py</text>
+<path d="M290 235 H335 M565 235 H610" stroke="#38bdf8" stroke-width="2" stroke-dasharray="6 4" opacity="0.8"/>
+<text x="450" y="366" text-anchor="middle" font-size="14" fill="#38bdf8">run.bat &#8594; http://127.0.0.1:5432 &#8212; &#1073;&#1077;&#1079; &#1091;&#1089;&#1090;&#1072;&#1085;&#1086;&#1074;&#1082;&#1080; Python</text>
+</svg>
