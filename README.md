@@ -6,12 +6,27 @@
 
 ## Быстрый старт
 
-```bash
-# 1. Установить зависимости
-pip install -r requirements.txt
+Проект работает на **встроенном (embedded) Python 3.13** из папки
+`runtime\embedded\python313` — venv и системный Python не нужны,
+все зависимости уже лежат в `runtime\embedded\python313\Lib\site-packages`.
 
-# 2. Запустить
-python app.py
+```bat
+:: 1. Запустить (двойным кликом или из консоли)
+run.bat
 
-# 3. Открыть в браузере
+:: 2. Открыть в браузере
 http://127.0.0.1:5432
+```
+
+Если нужно переустановить/обновить зависимости внутри embedded-рантайма:
+
+```bat
+install_deps.bat
+```
+
+Можно запустить и вручную любой Python 3.9+ (для отладки):
+
+```bash
+pip install -r requirements.txt
+python run_embedded.py   # или python app.py
+```
