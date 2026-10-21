@@ -5,3 +5,19 @@ __pycache__/
 # без них run.bat не заработает на чистой машине (venv больше не используется).
 # Игнорируем только кэш байткода.
 runtime/embedded/**/__pycache__/
+
+# Локальные артефакты, создаваемые приложением при запуске
+logs/
+.flask_secret
+plugins.json
+plugin_events.log
+plugin_events.jsonl
+backups/
+*.bak
+schema_version.json
+settings.json
+category_colors.json
+card_order.json
+category_order.json
+group_icons.json
+custom_themes.json
