@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 
 __version__ = "1.0"
-__description__ = "Экспорт в XLSX"
+__description__ = "Экспорт в XLSX (копия реестра)"
 
 
 def register(hooks, app, config, core):
@@ -20,5 +20,6 @@ def register(hooks, app, config, core):
 
     hooks['ui_data_tab'].append({
         'id': 'export_xlsx_btn', 'icon': '📤',
-        'label': 'Экспорт в XLSX', 'action': 'download', 'url': '/export/xlsx',
+        'label': 'Экспорт в XLSX',
+        'action': 'download', 'url': '/export/xlsx',
     })
