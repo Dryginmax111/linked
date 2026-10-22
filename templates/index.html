@@ -5,6 +5,73 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>Реестр полезных ссылок</title>
+	<script>
+    /* ============================================================
+       ДИАГНОСТИКА ЧЕРЕЗ СЕРВЕР.
+       Все ошибки JS и маркеры загрузки уходят на /api/js-log,
+       который печатает их в консоль сервера (python app.py).
+       ============================================================ */
+    (function() {
+        function send(kind, message, extra) {
+            try {
+                var body = JSON.stringify({
+                    kind: kind || 'log',
+                    message: message || '',
+                    extra: extra || ''
+                });
+                if (navigator.sendBeacon) {
+                    var blob = new Blob([body], { type: 'application/json' });
+                    navigator.sendBeacon('/api/js-log', blob);
+                } else {
+                    fetch('/api/js-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: body,
+                        keepalive: true
+                    }).catch(function(){});
+                }
+            } catch (e) {}
+        }
+        window.__reestrLog = send;
+
+        // Ошибки парсинга и выполнения
+        window.addEventListener('error', function(e) {
+            var msg = e.message || 'Unknown error';
+            var src = e.filename || '?';
+            var line = e.lineno || 0;
+            var col = e.colno || 0;
+            var stack = (e.error && e.error.stack) || '';
+            send('error', msg, 'at ' + src + ':' + line + ':' + col +
+                 (stack ? '\n' + stack : ''));
+        });
+
+        // Необработанные Promise
+        window.addEventListener('unhandledrejection', function(e) {
+            var r = e.reason;
+            var msg = (r && r.message) || String(r) || 'Unhandled rejection';
+            var stack = (r && r.stack) || '';
+            send('error', 'Promise rejection: ' + msg, stack);
+        });
+
+        // Через 3 секунды после загрузки DOM — проверка, что app.js жив
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                var ok = !!window.__reestrAppLoaded;
+                var flags = 'REESTR_DATA=' + (typeof window.REESTR_DATA) +
+                            ', REESTR_CSRF=' + (typeof window.REESTR_CSRF) +
+                            ', pluginFetch=' + (typeof window.pluginFetch) +
+                            ', hljs=' + (typeof window.hljs) +
+                            ', initMain=' + (typeof window.__reestrInitMain) +
+                            ', initExtended=' + (typeof window.__reestrInitExtended);
+                if (ok) {
+                    send('log', 'app.js: OK', flags);
+                } else {
+                    send('error', 'app.js: NOT LOADED (syntax error?)', flags);
+                }
+            }, 3000);
+        });
+    })();
+    </script>
     <style>
         :root {
             color-scheme: dark;
@@ -53,7 +120,7 @@
             --shimmer-speed: 1;
             --shimmer-intensity: 1;
             --link-text-indent: 76px;
-            font-size: 14px;
+            font-size: 8px;
         }
         * { margin:0; padding:0; box-sizing:border-box; }
         * {
@@ -68,9 +135,11 @@
         }
         *::-webkit-scrollbar-thumb:hover { background: rgba(128,128,128,0.5); }
         body.theme-light *::-webkit-scrollbar-thumb,
-        body.theme-ios-glass *::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); }
+        body.theme-ios-glass *::-webkit-scrollbar-thumb,
+        body.theme-material-light *::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); }
         body.theme-light { color-scheme: light; }
         body.theme-ios-glass { color-scheme: light; }
+        body.theme-material-light { color-scheme: light; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
@@ -104,29 +173,22 @@
             33%      { transform: translate(40px, -30px) scale(1.1); }
             66%      { transform: translate(-30px, 40px) scale(0.95); }
         }
-
-        /* ============================================================
-           ВАРИАНТЫ АНИМИРОВАННОГО ФОНА
-           ============================================================ */
         body.mesh-style-pulse::before { animation: meshPulse 6s ease-in-out infinite; }
         @keyframes meshPulse {
             0%, 100% { transform: scale(0.9); opacity: 0.18; }
             50%      { transform: scale(1.15); opacity: 0.35; }
         }
-
         body.mesh-style-rotate::before { animation: meshRotate 40s linear infinite; }
         @keyframes meshRotate {
             0%   { transform: rotate(0deg) scale(1.05); }
             100% { transform: rotate(360deg) scale(1.05); }
         }
-
         body.mesh-style-wave::before { animation: meshWave 14s linear infinite; }
         @keyframes meshWave {
             0%   { transform: translateX(-8%) scale(1); }
             50%  { transform: translateX(8%) scale(1.08); }
             100% { transform: translateX(-8%) scale(1); }
         }
-
         body.mesh-style-orbit::before { animation: meshOrbit 18s linear infinite; }
         @keyframes meshOrbit {
             0%   { transform: translate(0, 0) rotate(0deg); }
@@ -135,14 +197,12 @@
             75%  { transform: translate(-40px, 40px) rotate(270deg); }
             100% { transform: translate(0, 0) rotate(360deg); }
         }
-
         body.mesh-style-flash::before { animation: meshFlash 8s ease-in-out infinite; }
         @keyframes meshFlash {
             0%, 55%, 100% { opacity: 0.15; transform: scale(1); }
             60%           { opacity: 0.55; transform: scale(1.15); }
             70%           { opacity: 0.5;  transform: scale(1.12); }
         }
-
         body.mesh-style-aurora::before {
             background:
                 radial-gradient(ellipse 60% 40% at 20% 20%, var(--mesh-bg-1) 0%, transparent 55%),
@@ -163,16 +223,11 @@
         mark { background: var(--mark-bg); color: inherit; padding: 0 2px; border-radius: 3px; }
         button { font-family: inherit; }
 
-        /* ============================================================
-           АНИМАЦИЯ ПОЯВЛЕНИЯ КАРТОЧЕК
-           ============================================================ */
         @keyframes cardIn {
             from { opacity: 0; transform: translateY(8px); }
             to   { opacity: 1; transform: translateY(0); }
         }
-        body.page-ready .card {
-            animation: cardIn 0.35s ease backwards;
-        }
+        body.page-ready .card { animation: cardIn 0.35s ease backwards; }
         body.page-ready .card:nth-child(1) { animation-delay: 0.00s; }
         body.page-ready .card:nth-child(2) { animation-delay: 0.03s; }
         body.page-ready .card:nth-child(3) { animation-delay: 0.06s; }
@@ -181,9 +236,7 @@
         body.page-ready .card:nth-child(6) { animation-delay: 0.15s; }
         body.page-ready .card:nth-child(7) { animation-delay: 0.18s; }
         body.page-ready .card:nth-child(8) { animation-delay: 0.21s; }
-        body.page-ready .card:nth-child(9) { animation-delay: 0.24s; }
-        body.page-ready .card:nth-child(10) { animation-delay: 0.27s; }
-        body.page-ready .card:nth-child(n+11) { animation-delay: 0.30s; }
+        body.page-ready .card:nth-child(n+9) { animation-delay: 0.24s; }
         @media (prefers-reduced-motion: reduce) {
             body.page-ready .card { animation: none; }
         }
@@ -316,41 +369,6 @@
         }
         .cat-manage-btn { margin-left: 2px; }
         #categoriesList, #userCategoriesList { display: flex; flex-direction: column; gap: 6px; }
-
-        /* ============================================================
-           СТРОКА КАТЕГОРИИ: кнопка + ▲ + ▼
-           ============================================================ */
-        .cat-row {
-            display: flex;
-            align-items: stretch;
-            gap: 4px;
-            width: 100%;
-        }
-        .cat-row .cat-btn { flex: 1 1 auto; min-width: 0; }
-        .cat-move-btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 20px;
-            flex-shrink: 0;
-            background: transparent;
-            border: 1px solid var(--filter-btn-border);
-            color: var(--filter-btn-color);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.6rem;
-            opacity: 0.35;
-            transition: all 0.2s;
-            padding: 0;
-        }
-        .cat-row:hover .cat-move-btn { opacity: 0.85; }
-        .cat-move-btn:hover {
-            background: var(--filter-btn-active-bg);
-            border-color: var(--filter-btn-active-color);
-            color: var(--filter-btn-active-color);
-            opacity: 1;
-        }
-
         .cat-btn {
             display: flex; align-items: center; gap: 10px;
             background: rgba(255,255,255,0.02);
@@ -364,12 +382,15 @@
             position: relative; overflow: hidden;
         }
         body.theme-light .cat-btn,
-        body.theme-ios-glass .cat-btn { background: rgba(0,0,0,0.02); }
+        body.theme-ios-glass .cat-btn,
+        body.theme-material-light .cat-btn { background: rgba(0,0,0,0.02); }
         .cat-btn:hover {
             background: rgba(255,255,255,0.06);
             border-color: var(--filter-btn-border);
             transform: translateX(3px);
         }
+        body.theme-light .cat-btn:hover,
+        body.theme-material-light .cat-btn:hover { background: rgba(0,0,0,0.04); }
         .cat-btn.active {
             background: linear-gradient(135deg, var(--filter-btn-active-bg) 0%, transparent 100%);
             border-color: var(--filter-btn-active-color);
@@ -402,14 +423,16 @@
             font-variant-numeric: tabular-nums; transition: all 0.2s;
         }
         body.theme-light .cat-btn .badge,
-        body.theme-ios-glass .cat-btn .badge { background: rgba(0,0,0,0.08); }
+        body.theme-ios-glass .cat-btn .badge,
+        body.theme-material-light .cat-btn .badge { background: rgba(0,0,0,0.08); }
         .cat-btn.active .badge {
             background: var(--cat-color, var(--filter-btn-active-color));
             color: #0b1a2e;
             box-shadow: 0 0 10px var(--cat-color, var(--filter-btn-active-color));
         }
         body.theme-light .cat-btn.active .badge,
-        body.theme-ios-glass .cat-btn.active .badge { color: #fff; }
+        body.theme-ios-glass .cat-btn.active .badge,
+        body.theme-material-light .cat-btn.active .badge { color: #fff; }
 
         .cat-btn.dragging { opacity: 0.4; cursor: grabbing; }
         .cat-btn.drag-over-top {
@@ -544,7 +567,8 @@
             border-radius: 12px;
         }
         body.theme-light .hotkeys-panel,
-        body.theme-ios-glass .hotkeys-panel { background: rgba(255,255,255,0.35); }
+        body.theme-ios-glass .hotkeys-panel,
+        body.theme-material-light .hotkeys-panel { background: rgba(255,255,255,0.35); }
         .hotkey-row {
             display: flex; align-items: center; gap: 10px;
             font-size: 0.85rem; color: var(--filter-btn-color);
@@ -666,9 +690,7 @@
             transform: scale(1.015);
             filter: brightness(1.15) drop-shadow(0 0 18px var(--title-grad-1));
         }
-        .page-title:active {
-            transform: scale(0.985);
-        }
+        .page-title:active { transform: scale(0.985); }
         .page-title .title-icon { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem; flex-shrink: 0; filter: drop-shadow(0 0 10px var(--title-grad-1)); animation: iconPulse 3s ease-in-out infinite; }
         .page-title .title-icon svg { width: 100%; height: 100%; display: block; }
         @keyframes gradientShift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
@@ -797,11 +819,10 @@
             transition: background 0.35s ease, border-color 0.35s ease; touch-action: pan-y; overflow: hidden;
         }
         .card-header:hover { background: rgba(255,255,255,0.02); }
-        body.theme-light .card-header:hover, body.theme-ios-glass .card-header:hover { background: rgba(0,0,0,0.02); }
+        body.theme-light .card-header:hover,
+        body.theme-ios-glass .card-header:hover,
+        body.theme-material-light .card-header:hover { background: rgba(0,0,0,0.02); }
 
-        /* ============================================================
-           ПОЛОСА КАРТОЧКИ — 8 вариантов через body.strip-style-*
-           ============================================================ */
         .card-header::before {
             content: '';
             position: absolute;
@@ -834,10 +855,7 @@
             opacity: 0.28;
             box-shadow: none;
         }
-        body.strip-style-hover-fill .card-header > * {
-            position: relative;
-            z-index: 2;
-        }
+        body.strip-style-hover-fill .card-header > * { position: relative; z-index: 2; }
 
         body.strip-style-gradient-full .card-header::before {
             left: 0; top: 0; bottom: 0;
@@ -1002,7 +1020,9 @@
             position: relative; contain: layout style;
         }
         .link-item .desc, .link-item .link-display { user-select: text; -webkit-user-select: text; }
-        body.theme-light .link-item, body.theme-ios-glass .link-item { background: rgba(0,0,0,0.02); }
+        body.theme-light .link-item,
+        body.theme-ios-glass .link-item,
+        body.theme-material-light .link-item { background: rgba(0,0,0,0.02); }
         .link-item:last-child { margin-bottom: 0; }
         .link-item:hover { background: var(--link-row-hover); border-left-color: var(--link-hover); }
         .link-item.hidden { display: none; }
@@ -1034,6 +1054,15 @@
             font-family: monospace; overflow: hidden; cursor: pointer;
         }
         .smart-link:hover .link-display { color: var(--link-hover); text-decoration: underline; }
+        .smart-link-code-only {
+            color: var(--meta-color);
+            font-style: italic;
+            cursor: default;
+        }
+        .smart-link-code-only:hover .link-display {
+            color: var(--meta-color);
+            text-decoration: none;
+        }
         .link-icon { font-size: 0.95rem; flex-shrink: 0; opacity: 0.85; }
         .link-display { color: var(--link-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-width: 0; display: block; }
         .link-status {
@@ -1078,6 +1107,126 @@
         .link-meta .meta-ico { font-size: 0.68rem; opacity: 0.75; }
         .link-meta .meta-created { cursor: pointer; padding: 1px 6px; border-radius: 8px; }
         .link-meta .meta-created:hover { background: var(--filter-btn-active-bg); color: var(--filter-btn-active-color); opacity: 1; }
+
+        /* ---------- Блок кода в карточке ---------- */
+        .link-code {
+            margin-top: 8px;
+            margin-left: 22px;
+            margin-right: 6px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+            background: rgba(0, 0, 0, 0.25);
+            position: relative;
+        }
+        body.theme-light .link-code,
+        body.theme-ios-glass .link-code,
+        body.theme-material-light .link-code {
+            background: rgba(0, 0, 0, 0.04);
+        }
+        .link-code .code-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border-bottom: 1px solid var(--card-border);
+            font-size: 0.68rem;
+        }
+        body.theme-light .link-code .code-header,
+        body.theme-material-light .link-code .code-header {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        .link-code .code-lang {
+            color: var(--accent);
+            font-family: monospace;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .link-code .code-actions {
+            margin-left: auto;
+            display: inline-flex;
+            gap: 2px;
+        }
+        .link-code .code-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: var(--filter-btn-color);
+            cursor: pointer;
+            padding: 1px 6px;
+            border-radius: 5px;
+            font-size: 0.72rem;
+            opacity: 0.6;
+            transition: all 0.15s;
+        }
+        .link-code .code-btn:hover {
+            opacity: 1;
+            background: var(--filter-btn-active-bg);
+            border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
+        }
+        .link-code .code-btn.copied { color: #2ecc71; opacity: 1; }
+        .link-code .code-body {
+            margin: 0;
+            padding: 8px 12px;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 0.78rem;
+            line-height: 1.45;
+            overflow-x: auto;
+            max-height: calc(0.78rem * 1.45 * 6 + 16px);
+            overflow-y: auto;
+            transition: max-height 0.35s ease;
+            white-space: pre;
+            scrollbar-width: thin;
+        }
+        .link-code.expanded .code-body { max-height: 600px; }
+        .link-code .code-body code {
+            background: transparent !important;
+            font-family: inherit;
+            padding: 0 !important;
+        }
+        .link-code:not(.expanded) .code-body {
+            -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+                    mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+        }
+        .link-code.expanded .code-body {
+            -webkit-mask-image: none;
+                    mask-image: none;
+        }
+        .link-code.expanded { grid-column: 1 / -1; }
+        body.compact-mode .link-code .code-body {
+            max-height: calc(0.78rem * 1.45 * 4 + 16px);
+        }
+        /* Подсветка (встроенная, без highlight.js) */
+        .link-code .hljs-keyword { color: #c792ea; font-weight: 600; }
+        .link-code .hljs-string { color: #c3e88d; }
+        .link-code .hljs-comment { color: #697098; font-style: italic; }
+        .link-code .hljs-number { color: #f78c6c; }
+        .link-code .hljs-literal { color: #ff5874; }
+        .link-code .hljs-ident { color: #82aaff; }
+        .link-code .hljs-punct { color: #89ddff; }
+        body.theme-light .link-code .hljs-keyword,
+        body.theme-ios-glass .link-code .hljs-keyword,
+        body.theme-material-light .link-code .hljs-keyword { color: #7c3aed; }
+        body.theme-light .link-code .hljs-string,
+        body.theme-ios-glass .link-code .hljs-string,
+        body.theme-material-light .link-code .hljs-string { color: #16a34a; }
+        body.theme-light .link-code .hljs-comment,
+        body.theme-ios-glass .link-code .hljs-comment,
+        body.theme-material-light .link-code .hljs-comment { color: #6b7280; }
+        body.theme-light .link-code .hljs-number,
+        body.theme-ios-glass .link-code .hljs-number,
+        body.theme-material-light .link-code .hljs-number { color: #ea580c; }
+        body.theme-light .link-code .hljs-literal,
+        body.theme-ios-glass .link-code .hljs-literal,
+        body.theme-material-light .link-code .hljs-literal { color: #db2777; }
+        body.theme-light .link-code .hljs-ident,
+        body.theme-ios-glass .link-code .hljs-ident,
+        body.theme-material-light .link-code .hljs-ident { color: #2563eb; }
+        body.theme-light .link-code .hljs-punct,
+        body.theme-ios-glass .link-code .hljs-punct,
+        body.theme-material-light .link-code .hljs-punct { color: #0d9488; }
+
         .category-tag {
             background: var(--tag-bg); color: var(--tag-color);
             font-size: 0.7rem; padding: 1px 8px;
@@ -1144,7 +1293,7 @@
         .modal-actions .btn { padding:8px 22px; font-size:1rem; background: var(--btn-gradient); color: var(--btn-text); border: none; border-radius: 20px; cursor: pointer; }
         .modal-actions .btn-secondary { background: rgba(128,128,128,0.15); color: var(--text-color); border: none; border-radius: 20px; cursor: pointer; }
         .modal-actions .btn-danger { background: linear-gradient(135deg, #e74c3c, #c0392b); color: #fff; border: none; border-radius: 20px; cursor: pointer; }
-        .modal-settings { max-width: 780px !important; width: 92% !important; padding: 0 !important; display: flex; flex-direction: column; max-height: 88vh; }
+        .modal-settings { max-width: 820px !important; width: 92% !important; padding: 0 !important; display: flex; flex-direction: column; max-height: 88vh; }
         .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px 8px; border-bottom: 1px solid var(--modal-border); }
         .settings-header h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
         .modal-close-btn { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--filter-btn-border); background: transparent; color: var(--filter-btn-color); font-size: 0.85rem; cursor: pointer; }
@@ -1157,6 +1306,42 @@
         .settings-panel.active { display: block; }
         .settings-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .settings-column { display: flex; flex-direction: column; gap: 9px; background: rgba(0,0,0,0.15); border: 1px solid var(--modal-border); border-radius: 10px; padding: 9px 10px; }
+
+        /* ---------- Секции внутри объединённой вкладки ---------- */
+        .settings-section { margin-bottom: 18px; }
+        .settings-section:last-child { margin-bottom: 0; }
+        .settings-section-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            color: var(--filter-btn-active-color);
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            padding: 6px 4px 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid var(--card-border);
+            position: relative;
+        }
+        .settings-section-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, var(--card-border), transparent);
+            opacity: 0.6;
+        }
+        .settings-section-title .section-count {
+            font-size: 0.65rem;
+            color: var(--meta-color);
+            font-weight: 600;
+            letter-spacing: 0;
+            text-transform: none;
+            padding: 1px 6px;
+            background: var(--filter-btn-active-bg);
+            border-radius: 8px;
+        }
+
         .appearance-group { display: flex; flex-direction: column; gap: 5px; }
         .appearance-group + .appearance-group { padding-top: 8px; border-top: 1px dashed var(--modal-border); }
         .appearance-title { display: flex; align-items: center; gap: 5px; font-size: 0.6rem; font-weight: 700; color: var(--meta-color); text-transform: uppercase; letter-spacing: 0.6px; }
@@ -1216,6 +1401,33 @@
         .toggle-row input[type="checkbox"]::before { content: ''; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 10px; height: 10px; border-radius: 50%; background: #fff; transition: left 0.25s; }
         .toggle-row input[type="checkbox"]:checked { background: var(--filter-btn-active-color); border-color: var(--filter-btn-active-color); }
         .toggle-row input[type="checkbox"]:checked::before { left: calc(100% - 12px); }
+
+        /* Обычные (не toggle) чекбоксы — для «только код» и подобных */
+        .form-group input[type="checkbox"].plain-checkbox {
+            width: 16px; height: 16px;
+            margin: 0;
+            cursor: pointer;
+            accent-color: var(--accent);
+            flex-shrink: 0;
+        }
+        .form-group .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(0,0,0,0.12);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+        }
+        .form-group .checkbox-row label {
+            cursor: pointer;
+            color: var(--text-color);
+            font-size: 0.9rem;
+            margin: 0;
+        }
+        body.theme-light .form-group .checkbox-row,
+        body.theme-material-light .form-group .checkbox-row { background: rgba(0,0,0,0.04); }
+
         .font-slider-row { display: flex; align-items: center; gap: 10px; }
         .font-slider-row input[type="range"] { flex: 1; cursor: pointer; accent-color: var(--accent); min-width: 0; height: 3px; }
         .font-size-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 18px; padding: 0 6px; border-radius: 9px; background: var(--filter-btn-active-bg); border: 1px solid var(--filter-btn-active-color); color: var(--filter-btn-active-color); font-size: 0.68rem; font-weight: 700; }
@@ -1233,15 +1445,6 @@
         .data-btn { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); font-size: 0.78rem; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; font-family: inherit; }
         .data-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); transform: translateX(3px); }
         .data-btn .data-icon { font-size: 1.05rem; flex-shrink: 0; }
-		        .tools-compact-btns {
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .tools-compact-btns .data-btn {
-            padding: 5px 9px;
-            font-size: 0.75rem;
-        }
         .wallpaper-row { display: flex; gap: 6px; align-items: stretch; }
         .wallpaper-row .data-btn.wallpaper-upload { flex: 1 1 auto; min-width: 0; }
         .wallpaper-row .data-btn.wallpaper-clear { flex: 0 0 auto; width: 38px; padding: 8px 0; justify-content: center; font-size: 1rem; }
@@ -1348,46 +1551,10 @@
         .plugin-editor-status { min-height: 1.5em; font-size: 0.85rem; margin: 4px 0 8px; }
         [data-plugin-modal="1"] .modal-content { padding: 24px 28px; }
 
-        .emoji-cat-btn {
-            background: transparent;
-            border: 1px solid var(--filter-btn-border);
-            color: var(--filter-btn-color);
-            padding: 4px 10px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 0.78rem;
-            font-weight: 500;
-            transition: all 0.2s;
-            white-space: nowrap;
-            font-family: inherit;
-        }
-        .emoji-cat-btn:hover,
-        .emoji-cat-btn.active {
-            background: var(--filter-btn-active-bg);
-            border-color: var(--filter-btn-active-color);
-            color: var(--filter-btn-active-color);
-        }
-        .emoji-btn {
-            background: var(--input-bg);
-            border: 1px solid var(--card-border);
-            color: var(--text-color);
-            border-radius: 8px;
-            font-size: 1.4rem;
-            line-height: 1;
-            padding: 6px 0;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            aspect-ratio: 1;
-            font-family: inherit;
-        }
-        .emoji-btn:hover {
-            background: var(--filter-btn-active-bg);
-            border-color: var(--filter-btn-active-color);
-            transform: scale(1.08);
-        }
+        .emoji-cat-btn { background: transparent; border: 1px solid var(--filter-btn-border); color: var(--filter-btn-color); padding: 4px 10px; border-radius: 20px; cursor: pointer; font-size: 0.78rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; font-family: inherit; }
+        .emoji-cat-btn:hover, .emoji-cat-btn.active { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); color: var(--filter-btn-active-color); }
+        .emoji-btn { background: var(--input-bg); border: 1px solid var(--card-border); color: var(--text-color); border-radius: 8px; font-size: 1.4rem; line-height: 1; padding: 6px 0; cursor: pointer; transition: all 0.15s ease; display: flex; align-items: center; justify-content: center; aspect-ratio: 1; font-family: inherit; }
+        .emoji-btn:hover { background: var(--filter-btn-active-bg); border-color: var(--filter-btn-active-color); transform: scale(1.08); }
         .emoji-btn:active { transform: scale(0.95); }
 
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
@@ -1454,410 +1621,347 @@
         .custom-theme-dot { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid rgba(255,255,255,0.3); flex-shrink: 0; }
         .custom-theme-name { flex: 1; font-size: 0.78rem; color: var(--text-color); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-        /* ============================================================
-           БЛОК КОДА В КАРТОЧКЕ
-           ============================================================ */
-        .link-item.has-code .link-main { margin-bottom: 4px; }
+        /* ---------- NEW: сетка инструментов/импорта/экспорта ---------- */
+        .data-panel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 6px;
+        }
+        .data-panel-grid .data-btn { justify-content: flex-start; }
+        .data-empty {
+            color: var(--meta-color); font-size: 0.78rem; font-style: italic;
+            padding: 10px; text-align: center; grid-column: 1 / -1;
+        }
 
-        .link-code {
-            margin: 8px 0 4px;
+        /* ---------- NEW: плитки плагинов (краткая сводка) ---------- */
+        .plugins-brief-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+            gap: 8px;
+            background: var(--input-bg);
             border: 1px solid var(--card-border);
             border-radius: 10px;
-            background: rgba(0, 0, 0, 0.22);
+            padding: 10px;
+        }
+        .plugins-brief-loading {
+            color: var(--meta-color); padding: 8px; grid-column: 1 / -1;
+            text-align: center; font-style: italic;
+        }
+        .plugin-brief {
+            background: rgba(0,0,0,0.12);
+            border: 1px solid var(--card-border);
+            border-radius: 8px; padding: 8px 10px; font-size: 0.78rem;
+        }
+        body.theme-light .plugin-brief,
+        body.theme-material-light .plugin-brief { background: rgba(0,0,0,0.03); }
+        .plugin-brief-name {
+            color: var(--accent); font-weight: 600; display: flex; gap: 4px;
+            align-items: baseline;
+        }
+        .plugin-brief-version { opacity: 0.55; font-size: 0.7rem; }
+        .plugin-brief-desc {
+            color: var(--desc-color); font-size: 0.72rem; margin-top: 2px;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
             overflow: hidden;
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
         }
-        body.theme-light .link-code,
-        body.theme-ios-glass .link-code { background: rgba(0, 0, 0, 0.04); }
+        .plugin-brief-err { color: #e74c3c; }
+        .plugin-brief-err .plugin-brief-name { color: #e74c3c; }
 
-        .link-code-head {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 5px 10px;
-            background: rgba(255, 255, 255, 0.03);
+        /* ---------- NEW: модалки Add/Edit ---------- */
+        .modal-form .form-row { display: flex; gap: 10px; align-items: flex-end; }
+        .modal-form .form-group-icon { flex: 0 0 auto; }
+        .modal-form .form-group-icon label { text-align: center; }
+        .modal-form .form-group-icon .icon-picker-btn {
+            width: 48px; height: 42px; font-size: 1.3rem;
+        }
+        .modal-form .form-group-grow { flex: 1 1 auto; min-width: 0; }
+        .form-custom-hidden { display: none; margin-top: 4px; font-size: 0.9rem; }
+        .form-custom-hidden.visible { display: block; }
+        .req { color: #e74c3c; }
+        .form-hint-inline { color: var(--meta-color); font-size: 0.72rem; font-weight: 400; }
+        .code-lang-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+        .code-lang-row select { flex: 1; max-width: 220px; }
+        .code-textarea {
+            font-family: 'Consolas','Monaco','Courier New', monospace;
+            font-size: 0.85rem; line-height: 1.4; white-space: pre;
+            overflow-x: auto; max-height: 300px;
+        }
+        .form-code-details {
+            border: 1px solid var(--card-border); border-radius: 10px;
+            padding: 4px 10px; margin-bottom: 12px; background: rgba(0,0,0,0.12);
+        }
+        body.theme-light .form-code-details { background: rgba(0,0,0,0.03); }
+        .form-code-details > summary {
+            cursor: pointer; user-select: none; padding: 6px 2px;
+            font-weight: 600; color: var(--text-color); font-size: 0.92rem;
+            list-style: none; display: flex; align-items: center; gap: 6px;
+        }
+        .form-code-details > summary::-webkit-details-marker { display: none; }
+        .form-code-details > summary::before {
+            content: '▸'; transition: transform 0.2s; color: var(--accent);
+            font-size: 0.85rem;
+        }
+        .form-code-details[open] > summary::before { transform: rotate(90deg); }
+        .form-code-details .details-hint {
+            color: var(--meta-color); font-size: 0.72rem; font-weight: 400;
+        }
+        .form-code-details[open] { padding-bottom: 10px; }
+        .form-code-details .form-group { margin-top: 8px; margin-bottom: 0; }
+        .duplicate-warn {
+            display: none; margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+            background: rgba(241,196,15,0.15); border: 1px solid rgba(241,196,15,0.4);
+            color: #f1c40f; font-size: 0.85rem;
+        }
+        .duplicate-warn.show { display: block; }
+
+        /* ---------- NEW: вкладка «Хранилище» (компактный дизайн v2) ---------- */
+        .settings-panel#tab-storage.active { display: flex; flex-direction: column; gap: 10px; }
+
+        /* Верхняя строка: сегментированный переключатель + кнопка обновить */
+        .storage-topbar {
+            display: flex; gap: 8px; align-items: center;
+            padding: 6px 0 8px;
             border-bottom: 1px solid var(--card-border);
-            font-size: 0.7rem;
-            color: var(--meta-color);
+            margin-bottom: 4px;
         }
-        body.theme-light .link-code-head { background: rgba(0, 0, 0, 0.03); }
-
-        .link-code-lang {
-            text-transform: uppercase;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            color: var(--accent);
-            padding: 1px 6px;
-            background: var(--tag-bg);
-            border-radius: 6px;
+        .storage-segmented {
+            display: inline-flex;
+            background: rgba(0,0,0,0.18);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 3px;
+            gap: 2px;
         }
-        .link-code-lines { opacity: 0.7; }
-
-        .link-code-toggle,
-        .link-code-copy {
-            background: transparent;
-            border: 1px solid var(--filter-btn-border);
+        body.theme-light .storage-segmented { background: rgba(0,0,0,0.05); }
+        .storage-segmented input[type="radio"] {
+            position: absolute; opacity: 0; pointer-events: none;
+            width: 0; height: 0;
+        }
+        .storage-seg-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 6px 14px; border-radius: 8px;
+            cursor: pointer; user-select: none;
+            font-size: 0.85rem; font-weight: 600;
             color: var(--filter-btn-color);
-            padding: 2px 8px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.68rem;
-            font-family: inherit;
-            transition: all 0.15s;
+            background: transparent; border: 1px solid transparent;
+            transition: all 0.18s ease;
+            white-space: nowrap;
         }
-        .link-code-toggle { margin-left: auto; }
-        .link-code-toggle:hover,
-        .link-code-copy:hover {
+        .storage-seg-btn:hover { color: var(--filter-btn-active-color); }
+        .storage-seg-btn .seg-ico { font-size: 1rem; }
+        .storage-segmented input[type="radio"]:checked + .storage-seg-btn {
             background: var(--filter-btn-active-bg);
             border-color: var(--filter-btn-active-color);
             color: var(--filter-btn-active-color);
+            box-shadow: 0 0 12px var(--filter-btn-active-bg);
+        }
+        .storage-topbar .data-btn {
+            margin-left: auto;
+            padding: 6px 12px;
+            font-size: 0.85rem;
         }
 
-        .link-code-body {
-            margin: 0;
+        /* Плашки статистики — компактные, в строку */
+        .storage-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+        }
+        .storage-stat {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.14);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+        }
+        body.theme-light .storage-stat { background: rgba(0,0,0,0.04); }
+        .storage-stat .ss-icon {
+            font-size: 1.15rem; flex-shrink: 0;
+            opacity: 0.85;
+        }
+        .storage-stat .ss-value {
+            font-size: 1.05rem; font-weight: 700;
+            color: var(--accent); line-height: 1.1;
+        }
+        .storage-stat .ss-label {
+            font-size: 0.65rem; color: var(--meta-color);
+            text-transform: uppercase; letter-spacing: 0.6px;
+            font-weight: 700;
+        }
+
+        /* Блок (для «Путь», «Файлы», «Импорт», «Экспорт») */
+        .storage-block {
+            background: rgba(0,0,0,0.14);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
             padding: 10px 12px;
-            overflow-x: auto;
-            font-size: 0.82rem;
-            line-height: 1.5;
-            color: var(--text-color);
-            max-height: 600px;
-            overflow-y: auto;
         }
-        .link-code-body code {
-            font-family: inherit;
-            white-space: pre;
-            display: block;
+        body.theme-light .storage-block { background: rgba(0,0,0,0.035); }
+        .storage-block-head {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.72rem; font-weight: 800;
+            color: var(--filter-btn-active-color);
+            text-transform: uppercase; letter-spacing: 1px;
+            margin-bottom: 8px;
         }
-        .link-code.code-collapsed .link-code-body {
-            max-height: calc(var(--collapsed-lines, 5) * 1.5em + 20px);
-            position: relative;
-        }
-        .link-code.code-collapsed .link-code-body::after {
-            content: '';
-            position: absolute;
-            left: 0; right: 0; bottom: 0;
-            height: 40px;
-            background: linear-gradient(180deg, transparent, rgba(0,0,0,0.35));
-            pointer-events: none;
-            border-radius: 0 0 10px 10px;
-        }
-        body.theme-light .link-code.code-collapsed .link-code-body::after {
-            background: linear-gradient(180deg, transparent, rgba(255,255,255,0.9));
+        .storage-block-head::after {
+            content: ''; flex: 1; height: 1px;
+            background: linear-gradient(90deg, var(--card-border), transparent);
+            opacity: 0.6;
         }
 
-        body.compact-mode .link-code-body { font-size: 0.75rem; }
-        body.compact-mode .link-code.code-collapsed .link-code-body {
-            max-height: calc(var(--collapsed-lines, 3) * 1.5em + 16px);
+        .storage-path-row {
+            display: flex; gap: 6px; align-items: stretch;
         }
-
-        .link-item.no-link .smart-link-nolink { cursor: default; opacity: 0.7; }
-        .link-item.no-link .smart-link-nolink:hover .link-display { color: inherit; text-decoration: none; }
-
-        /* ============================================================
-           РЕДАКТОР КОДА В МОДАЛКАХ
-           ============================================================ */
-        .code-editor-group { margin-bottom: 12px; display: flex; flex-direction: column; gap: 4px; }
-        .code-editor-head {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .code-editor-head label { flex: 1; color: var(--meta-color); font-size: 1rem; font-weight: 500; }
-        .code-editor-head select {
-            padding: 4px 10px;
+        .storage-path-input {
+            flex: 1; min-width: 0;
+            padding: 7px 10px;
             border: 1px solid var(--input-border);
             border-radius: 8px;
             background: var(--input-bg);
             color: var(--text-color);
-            font-size: 0.85rem;
-            color-scheme: inherit;
-            font-family: inherit;
+            font-family: monospace; font-size: 0.82rem;
+            outline: none;
+            transition: border-color 0.15s;
         }
-        .code-editor-toggle {
-            background: transparent;
+        .storage-path-input:focus { border-color: var(--input-focus-border); }
+        .storage-icon-btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 34px; padding: 0 10px;
             border: 1px solid var(--filter-btn-border);
-            color: var(--filter-btn-color);
-            padding: 4px 10px;
             border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.78rem;
-            font-family: inherit;
-        }
-        .code-editor-toggle:hover {
-            background: var(--filter-btn-active-bg);
-            border-color: var(--filter-btn-active-color);
-            color: var(--filter-btn-active-color);
-        }
-        .code-editor-body {
-            display: none;
-            flex-direction: column;
-            gap: 4px;
-        }
-        .code-editor-body.open { display: flex; }
-        .code-editor-body textarea {
-            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace !important;
-            font-size: 0.85rem !important;
-            min-height: 180px;
-            white-space: pre;
-            overflow-x: auto;
-            tab-size: 4;
-            line-height: 1.5;
-        }
-        .code-editor-hint {
-            color: var(--meta-color);
-            font-size: 0.75rem;
-            font-style: italic;
-        }
-
-		/* ============================================================
-           ВКЛАДКА «ИНСТРУМЕНТЫ» — сетка карточек
-           ============================================================ */
-        .tools-tab-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-        }
-        .tools-card {
-            display: flex;
-            flex-direction: column;
-            background: rgba(0, 0, 0, 0.15);
-            border: 1px solid var(--modal-border);
-            border-radius: 14px;
-            overflow: hidden;
-            min-width: 0;
-        }
-        .tools-card-full {
-            grid-column: 1 / -1;
-        }
-        body.theme-light .tools-card,
-        body.theme-ios-glass .tools-card {
-            background: rgba(255, 255, 255, 0.4);
-        }
-
-        .tools-card-head {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 14px 10px;
-            border-bottom: 1px solid var(--modal-border);
-            background: rgba(255, 255, 255, 0.02);
-        }
-        body.theme-light .tools-card-head,
-        body.theme-ios-glass .tools-card-head {
-            background: rgba(0, 0, 0, 0.02);
-        }
-        .tools-card-icon {
-            font-size: 1.3rem;
-            flex-shrink: 0;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--filter-btn-active-bg);
-            border-radius: 9px;
-            border: 1px solid var(--filter-btn-active-color);
-        }
-        .tools-card-titles {
-            flex: 1;
-            min-width: 0;
-        }
-        .tools-card-title {
-            font-size: 0.95rem;
-            font-weight: 700;
-            color: var(--text-color);
-            letter-spacing: 0.2px;
-        }
-        .tools-card-sub {
-            font-size: 0.7rem;
-            color: var(--meta-color);
-            opacity: 0.8;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-top: 1px;
-        }
-        .tools-card-action {
             background: transparent;
-            border: 1px solid var(--filter-btn-border);
             color: var(--filter-btn-color);
-            width: 28px;
-            height: 28px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            transition: all 0.2s;
-            flex-shrink: 0;
-        }
-        .tools-card-action:hover {
-            background: var(--filter-btn-active-bg);
-            border-color: var(--filter-btn-active-color);
-            color: var(--filter-btn-active-color);
-        }
-
-        .tools-card-body {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            padding: 10px 12px 12px;
-            flex: 1;
-            min-height: 0;
-        }
-
-        .tools-card-subhead {
-            font-size: 0.68rem;
-            font-weight: 700;
-            color: var(--meta-color);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            padding: 4px 2px 2px;
-            opacity: 0.85;
-        }
-        .tools-card-divider {
-            height: 1px;
-            background: var(--modal-border);
-            margin: 6px 0 2px;
-            opacity: 0.6;
-        }
-
-        .tools-card .data-btn {
-            padding: 7px 10px;
-            gap: 10px;
-            font-size: 0.8rem;
-            transform: none;
-        }
-        .tools-card .data-btn:hover { transform: translateX(2px); }
-
-        .tools-card .data-btn .data-btn-text {
-            display: flex;
-            flex-direction: column;
-            gap: 1px;
-            min-width: 0;
-            flex: 1;
-            text-align: left;
-        }
-        .tools-card .data-btn .data-btn-label {
-            font-weight: 600;
-            font-size: 0.82rem;
-            color: inherit;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .tools-card .data-btn .data-btn-hint {
-            font-size: 0.68rem;
-            opacity: 0.6;
-            font-weight: 400;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .data-btn.data-btn-accent {
-            background: linear-gradient(135deg,
-                var(--filter-btn-active-bg) 0%,
-                transparent 100%);
-            border-color: var(--filter-btn-active-color);
-            color: var(--filter-btn-active-color);
-        }
-        .data-btn.data-btn-accent .data-icon {
-            filter: drop-shadow(0 0 6px var(--filter-btn-active-color));
-        }
-
-		.plugins-compact-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-            gap: 5px;
-            max-height: 340px;
-            overflow-y: auto;
-            padding: 6px;
-            background: rgba(0, 0, 0, 0.1);
-            border: 1px solid var(--modal-border);
-            border-radius: 10px;
-        }
-        body.theme-light .plugins-compact-grid,
-        body.theme-ios-glass .plugins-compact-grid {
-            background: rgba(255, 255, 255, 0.3);
-        }
-        .plugin-mini {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 8px;
-            border-radius: 7px;
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid var(--card-border);
-            font-size: 0.74rem;
-            min-width: 0;
+            font-size: 0.9rem; cursor: pointer;
             transition: all 0.15s;
         }
-        .plugin-mini:hover {
+        .storage-icon-btn:hover {
             background: var(--filter-btn-active-bg);
             border-color: var(--filter-btn-active-color);
+            color: var(--filter-btn-active-color);
         }
-        .plugin-mini-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            flex-shrink: 0;
+
+        .storage-path-status {
+            margin-top: 6px; font-size: 0.78rem;
+            padding: 5px 10px;
+            border-radius: 7px;
+            display: none;
         }
-        .plugin-mini-name {
-            color: var(--text-color);
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            min-width: 0;
-            flex: 1;
+        .storage-path-status.show { display: block; }
+        .storage-path-status.ok {
+            background: rgba(46,204,113,0.14);
+            border: 1px solid rgba(46,204,113,0.35);
+            color: #2ecc71;
         }
-        .plugin-mini-ver {
+        .storage-path-status.err {
+            background: rgba(231,76,60,0.14);
+            border: 1px solid rgba(231,76,60,0.35);
+            color: #e74c3c;
+        }
+        .storage-path-status.warn {
+            background: rgba(241,196,15,0.14);
+            border: 1px solid rgba(241,196,15,0.35);
+            color: #f1c40f;
+        }
+        .storage-hint {
+            font-size: 0.7rem; line-height: 1.5;
             color: var(--meta-color);
-            font-size: 0.65rem;
+            margin-top: 6px;
+        }
+        .storage-hint code {
+            background: rgba(0,0,0,0.2);
+            padding: 0 4px; border-radius: 3px;
+            font-family: monospace; font-size: 0.95em;
+        }
+        body.theme-light .storage-hint code { background: rgba(0,0,0,0.08); }
+
+        .storage-files-info {
+            font-size: 0.78rem; line-height: 1.7;
+            color: var(--desc-color);
+        }
+        .storage-files-info b { color: var(--text-color); }
+        .storage-files-info .files-path {
+            display: block; margin-top: 2px;
             opacity: 0.7;
-            flex-shrink: 0;
-        }
-		.tools-empty {
-            color: var(--meta-color);
-            text-align: center;
-            padding: 16px 8px;
-            font-style: italic;
-            font-size: 0.78rem;
-            opacity: 0.75;
-            grid-column: 1 / -1;
-        }
-        .tools-card-hint {
-            color: var(--meta-color);
-            font-size: 0.7rem;
-            margin-top: 8px;
-            line-height: 1.5;
-            opacity: 0.75;
-        }
-        .tools-card-hint code {
-            background: var(--tag-bg);
-            color: var(--tag-color);
-            padding: 1px 5px;
-            border-radius: 4px;
             font-family: monospace;
-            font-size: 0.68rem;
+            font-size: 0.7rem;
+            word-break: break-all;
         }
 
-        @media (max-width: 720px) {
-            .tools-tab-grid { grid-template-columns: 1fr; }
-            .tools-card-full { grid-column: auto; }
+        /* Импорт | Экспорт — 2 колонки */
+        .storage-io-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .storage-drop {
+            display: flex; align-items: center; justify-content: center;
+            gap: 8px;
+            padding: 10px 12px;
+            border: 1.5px dashed var(--card-border);
+            border-radius: 8px;
+            background: transparent;
+            color: var(--filter-btn-color);
+            font-size: 0.82rem; font-weight: 600;
+            cursor: pointer;
+            transition: all 0.18s;
+            text-align: center;
+        }
+        .storage-drop:hover {
+            border-color: var(--filter-btn-active-color);
+            background: var(--filter-btn-active-bg);
+            color: var(--filter-btn-active-color);
+        }
+        .storage-import-progress {
+            display: none; margin-top: 6px;
+            font-size: 0.78rem; color: var(--meta-color);
+        }
+        .storage-import-progress.show { display: block; }
+        .storage-io-grid .data-btn {
+            width: 100%; justify-content: center;
+            padding: 9px 12px; font-size: 0.82rem;
         }
 
-        /* highlight.js базовые цвета */
-        .hljs-keyword, .hljs-selector-tag { color: #c678dd; }
-        .hljs-string, .hljs-attr { color: #98c379; }
-        .hljs-number, .hljs-literal { color: #d19a66; }
-        .hljs-comment { color: #7a9ab5; font-style: italic; }
-        .hljs-function, .hljs-title { color: #61afef; }
-        .hljs-built_in, .hljs-type { color: #e5c07b; }
-        body.theme-light .hljs-keyword { color: #a626a4; }
-        body.theme-light .hljs-string { color: #50a14f; }
-        body.theme-light .hljs-number { color: #986801; }
-        body.theme-light .hljs-comment { color: #a0a1a7; }
-        body.theme-light .hljs-function, body.theme-light .hljs-title { color: #4078f2; }
-        body.theme-light .hljs-built_in, body.theme-light .hljs-type { color: #c18401; }
+        /* Опасная зона */
+        .storage-danger {
+            display: flex; align-items: center; gap: 10px;
+            padding: 8px 12px;
+            background: rgba(231,76,60,0.06);
+            border: 1px solid rgba(231,76,60,0.25);
+            border-radius: 10px;
+            flex-wrap: wrap;
+        }
+        .storage-danger .data-btn.danger {
+            color: #e74c3c;
+            border-color: rgba(231,76,60,0.4);
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+        .storage-danger .data-btn.danger:hover {
+            background: rgba(231,76,60,0.15);
+            border-color: #e74c3c;
+        }
+        .storage-danger .storage-hint { margin: 0; flex: 1; min-width: 200px; }
+
+        /* Адаптив */
+        @media (max-width: 600px) {
+            .storage-stats { grid-template-columns: 1fr 1fr 1fr; }
+            .storage-stat { flex-direction: column; gap: 2px; padding: 8px; text-align: center; }
+            .storage-io-grid { grid-template-columns: 1fr; }
+            .storage-path-row { flex-wrap: wrap; }
+        }
+        .settings-section-danger .data-btn.danger:hover {
+            background: rgba(231,76,60,0.15); border-color: #e74c3c;
+        }
+        .settings-hint {
+            color: var(--meta-color); font-size: 0.72rem;
+            line-height: 1.5; margin-top: 6px;
+        }
+        .settings-hint code {
+            background: rgba(0,0,0,0.2); padding: 0 4px; border-radius: 3px;
+            font-family: monospace; font-size: 0.9em;
+        }
+        body.theme-light .settings-hint code { background: rgba(0,0,0,0.08); }
 
         @media (max-width: 992px) {
             .app-container { flex-direction: column; }
@@ -1880,7 +1984,7 @@
             .fab-add { width: 56px; height: 56px; right: 16px; bottom: 16px; font-size: 1.8rem; }
             .settings-fab { top: 12px; right: 12px; width: 36px; height: 36px; font-size: 1rem; }
             .settings-columns { grid-template-columns: 1fr; }
-            .cat-move-btn { opacity: 0.85; }
+            .storage-type-row { grid-template-columns: 1fr; }
         }
         @media (max-width: 600px) {
             body { padding: 12px 8px; font-size: 1.2rem; }
@@ -1911,57 +2015,58 @@
             .donut-chart { width: 140px; height: 140px; }
             .tags-bar-row { flex-wrap: wrap; }
             .col-buttons-inline { margin-left: 0; width: 100%; justify-content: flex-end; }
+            .link-code { margin-left: 40px; }
+            .storage-type-row { grid-template-columns: 1fr; }
+            .storage-path-row { flex-direction: column; }
         }
     </style>
-	<link rel="stylesheet" href="/static/themes.css?v={{ static_version|default('1') }}">
-    {# Кастомные темы — рендерим сразу, чтобы не мелькала базовая #}
-    {% if custom_themes %}
-    <style id="custom-themes-style">
-    {% for theme_id, theme in custom_themes.items() %}
-    body.theme-{{ theme_id }} {
-    {% for k, v in theme.vars.items() %}
-        {{ k }}: {{ v }};
-    {% endfor %}
-    }
-    {% endfor %}
-    </style>
-    {% endif %}
-    <!-- Подсветка кода — встроенная (static/app.js), без внешних CDN -->
+    <link rel="stylesheet" href="/static/themes.css?v={{ static_version|default('1') }}">
     {% for item in ui.styles %}{{ item.html|safe }}{% endfor %}
-    <script src="/static/app.js?v={{ static_version|default('1') }}" defer></script>
     <script src="/static/plugin_runtime.js?v={{ static_version|default('1') }}" defer></script>
+    <script src="/static/app.js?v={{ static_version|default('1') }}" defer></script>
     {% for item in ui.scripts %}{{ item.html|safe }}{% endfor %}
 </head>
 <body class="header-shimmer-{{ settings.get('header_shimmer', 'sweep') }}{% if not settings.get('card_shimmer', True) %} card-shimmer-off{% endif %}{{ ' header-anim-off' if not settings.get('header_anim', True) else '' }}{% if settings.get('header_shimmer', 'sweep') != 'off' %} has-header-shimmer{% endif %}">
     <script>
-    /* =========================================================
-       FOUC-FIX: применяем все localStorage-настройки
-       до первой отрисовки body.
-       ========================================================= */
+    /* FOUC-FIX: применяем localStorage-настройки до первой отрисовки body.
+       NEW: дефолт — «Светлая» тема. Плюс — инжектим inline-CSS кастомной
+       темы (если сохранён), чтобы избежать мигания дефолтной темой. */
     (function () {
         try {
             var html = document.documentElement;
             var body = document.body;
 
-            /* 1. ТЕМА */
-            var theme = localStorage.getItem('reestr_theme') || 'dark';
-            if (theme && theme !== 'dark') {
-                body.classList.add('theme-' + theme);
+            var theme = localStorage.getItem('reestr_theme') || 'light';
+            // NEW: всегда навешиваем класс темы (включая light),
+            // т.к. :root остаётся dark-fallback'ом.
+            body.classList.add('theme-' + theme);
+
+            // NEW: инжектим inline-CSS кастомной темы ДО первой отрисовки.
+            // Это убирает мелькание дефолтной темы при загрузке кастомной.
+            if (theme && theme !== 'dark' && theme !== 'light') {
+                try {
+                    var themeCSS = localStorage.getItem('reestr_theme_css_' + theme);
+                    if (themeCSS) {
+                        var st = document.createElement('style');
+                        st.id = 'reestr-custom-theme-css';
+                        st.textContent = themeCSS;
+                        // Вставляем в самое начало head, чтобы переменные
+                        // применились раньше основных стилей
+                        var head = document.head || document.getElementsByTagName('head')[0];
+                        if (head) head.insertBefore(st, head.firstChild);
+                    }
+                } catch (e) {}
             }
 
-            /* 2. Размер шрифта */
             var fs = localStorage.getItem('reestr_fontSize');
             if (fs) html.style.fontSize = fs + 'px';
 
-            /* 3. Радиус углов */
             var radius = localStorage.getItem('reestr_radius');
             if (radius) html.style.setProperty('--radius-card', radius + 'px');
 
-            /* 4. Ширина сайдбара */
             var sw = localStorage.getItem('reestr_sidebarWidth');
             if (sw) html.style.setProperty('--sidebar-width', sw + 'px');
 
-            /* 5. Обои */
             var wp = localStorage.getItem('reestr_wallpaper');
             if (wp) {
                 body.style.backgroundImage =
@@ -1971,22 +2076,18 @@
                 body.style.backgroundPosition = 'center';
             }
 
-            /* 6. Анимация шапки */
             if (localStorage.getItem('reestr_headerAnim') === 'false') {
                 body.classList.add('header-anim-off');
             }
 
-            /* 7. Компактный режим */
             if (localStorage.getItem('reestr_compact') === 'true') {
                 body.classList.add('compact-mode');
             }
 
-            /* 8. Режим презентации */
             if (localStorage.getItem('reestr_presentation') === 'true') {
                 body.classList.add('presentation-mode');
             }
 
-            /* 9. Mesh-фон (варианты) */
             var mesh = localStorage.getItem('reestr_meshBg') || 'off';
             if (mesh === 'true') mesh = 'float';
             if (mesh === 'false') mesh = 'off';
@@ -1996,7 +2097,6 @@
                 body.classList.add('mesh-style-' + mesh);
             }
 
-            /* 10. Полоса карточки */
             var strip = localStorage.getItem('reestr_cardStrip') || 'left';
             if (strip === 'gradient-half') strip = 'hover-fill';
             var STRIPS = ['hover-fill','gradient-full','gradient-center','top','bottom','frame','off'];
@@ -2004,7 +2104,6 @@
                 body.classList.add('strip-style-' + strip);
             }
 
-            /* 11. Колонки */
             var cols = localStorage.getItem('reestr_cols') || '2';
             html.setAttribute('data-cols', cols);
 
@@ -2195,72 +2294,104 @@
         </main>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКА: ДОБАВИТЬ (NEW: редизайн — спойлер кода, порядок полей)
+         ================================================================ -->
     <div class="modal" id="addModal" role="dialog" aria-modal="true">
-        <div class="modal-content">
-            <h2>➕ Добавить новую запись</h2>
+        <div class="modal-content modal-form">
+            <h2>➕ Новая запись</h2>
             <form method="POST" action="/add" id="addForm">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+                <!-- Иконка + Название в одну строку -->
+                <div class="form-row">
+                    <div class="form-group form-group-icon">
+                        <label title="Иконка группы">📌</label>
+                        <button type="button" class="icon-picker-btn" id="addIconPickerBtn" title="Иконка группы">📌</button>
+                        <input type="hidden" id="add_group_icon" name="group_icon" value="">
+                    </div>
+                    <div class="form-group form-group-grow">
+                        <label for="name">Название <span class="req">*</span></label>
+                        <input type="text" id="name" name="name" list="names-datalist"
+                               placeholder="например, Документация" required>
+                        <datalist id="names-datalist">{{ datalist_options|safe }}</datalist>
+                    </div>
+                </div>
+
                 <div class="form-group">
-                    <label for="category_add">Категория</label>
+                    <label for="category_add">🏷️ Категория</label>
                     <select id="category_add" name="category_select">{{ cat_options|safe }}</select>
-                    <input type="text" id="category_custom" name="category_custom" placeholder="или введите свою" style="margin-top:4px; display:none; font-size:0.9rem;">
+                    <input type="text" id="category_custom" name="category_custom"
+                           placeholder="или введите свою" class="form-custom-hidden">
                     <input type="hidden" id="category_hidden" name="category" value="">
                 </div>
+
                 <div class="form-group">
-                    <label for="name">Название *</label>
-                    <div class="name-with-icon">
-                        <button type="button" class="icon-picker-btn" id="addIconPickerBtn" title="Иконка группы">📌</button>
-                        <input type="text" id="name" name="name" list="names-datalist" placeholder="например, Документация" required>
-                    </div>
-                    <datalist id="names-datalist">{{ datalist_options|safe }}</datalist>
-                </div>
-                <input type="hidden" id="add_group_icon" name="group_icon" value="">
-                <div class="form-group">
-                    <label for="link">Ссылка</label>
-                    <input type="text" id="link" name="link" placeholder="https://... или \\server\share (или оставьте пустым, если есть код)">
-                    <div id="duplicateWarn" style="display:none; margin-top:6px; padding:8px 10px; border-radius:8px; background:rgba(241,196,15,0.15); border:1px solid rgba(241,196,15,0.4); color:#f1c40f; font-size:0.85rem;"></div>
-                </div>
-                <div class="form-group">
-                    <label for="tags_add">Теги</label>
+                    <label for="tags_add">🔖 Теги</label>
                     <div class="tags-input-wrapper">
                         <div class="tags-chips" id="tagsAddWrapper">
-                            <input type="text" class="tag-chip-input" id="tagsAddInput" placeholder="тег и Enter" autocomplete="off">
+                            <input type="text" class="tag-chip-input" id="tagsAddInput"
+                                   placeholder="тег и Enter" autocomplete="off">
                         </div>
                         <div class="tags-suggestions" id="tagsAddSuggestions"></div>
                     </div>
                     <input type="hidden" id="tags_add" name="tags" value="">
                 </div>
+
                 <div class="form-group">
-                    <label for="desc">Описание</label>
-                    <textarea id="desc" name="desc" rows="4" placeholder="краткий комментарий"></textarea>
+                    <label for="desc">📝 Описание</label>
+                    <textarea id="desc" name="desc" rows="3"
+                              placeholder="краткий комментарий"></textarea>
                 </div>
-                <div class="form-group code-editor-group">
-                    <div class="code-editor-head">
-                        <label>💻 Код (необязательно, но тогда нужна ссылка)</label>
-                        <select id="code_lang_add">
-                            <option value="">— язык —</option>
-                            <option value="python">Python</option>
-                            <option value="sql">SQL</option>
-                            <option value="javascript">JavaScript</option>
-                            <option value="json">JSON</option>
-                            <option value="bash">Bash</option>
-                            <option value="powershell">PowerShell</option>
-                            <option value="yaml">YAML</option>
-                            <option value="ini">INI / conf</option>
-                            <option value="html">HTML</option>
-                            <option value="css">CSS</option>
-                            <option value="xml">XML</option>
-                            <option value="plaintext">Другое</option>
-                        </select>
-                        <button type="button" class="code-editor-toggle" id="codeToggleBtnAdd">▼ Раскрыть</button>
-                    </div>
-                    <div class="code-editor-body" id="codeEditorBodyAdd">
-                        <textarea id="code_add" name="code" placeholder="Вставьте код (Python, SQL, ...) — он будет храниться вместе с записью" spellcheck="false"></textarea>
-                        <div class="code-editor-hint">
-                            Ссылку можно не указывать, если есть код. Запись появится с иконкой 🧩.
+
+                <div class="form-group">
+                    <label for="link">🔗 Ссылка
+                        <span class="form-hint-inline">(или добавьте код ниже)</span>
+                    </label>
+                    <input type="text" id="link" name="link"
+                           placeholder="https://... или \\server\share">
+                    <div id="duplicateWarn" class="duplicate-warn"></div>
+                </div>
+
+                <!-- NEW: спойлер кода -->
+                <details class="form-code-details" id="addCodeDetails">
+                    <summary>💻 Код <span class="details-hint">(необязательно)</span></summary>
+                    <div class="form-group">
+                        <div class="code-lang-row">
+                            <select id="code_lang_add" name="code_lang">
+                                <option value="">— язык —</option>
+                                <option value="python">Python</option>
+                                <option value="sql">SQL</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="html">HTML</option>
+                                <option value="css">CSS</option>
+                                <option value="bash">Bash / Shell</option>
+                                <option value="powershell">PowerShell</option>
+                                <option value="json">JSON</option>
+                                <option value="yaml">YAML</option>
+                                <option value="xml">XML</option>
+                                <option value="php">PHP</option>
+                                <option value="ruby">Ruby</option>
+                                <option value="go">Go</option>
+                                <option value="rust">Rust</option>
+                                <option value="java">Java</option>
+                                <option value="c">C</option>
+                                <option value="cpp">C++</option>
+                                <option value="csharp">C#</option>
+                                <option value="ini">INI</option>
+                                <option value="toml">TOML</option>
+                                <option value="markdown">Markdown</option>
+                                <option value="diff">Diff</option>
+                                <option value="text">Простой текст</option>
+                            </select>
+                            <span class="form-hint-inline">Максимум 20000 символов</span>
                         </div>
+                        <textarea id="code_add" name="code" rows="6" class="code-textarea"
+                                  placeholder="Вставьте код. Язык — для подсветки синтаксиса."></textarea>
                     </div>
-                </div>
+                </details>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" id="closeAddModalBtn">Отмена</button>
                     <button type="submit" class="btn">💾 Добавить</button>
@@ -2269,63 +2400,93 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКА: РЕДАКТИРОВАТЬ (NEW: симметрично Add)
+         ================================================================ -->
     <div class="modal" id="editModal" role="dialog" aria-modal="true">
-        <div class="modal-content">
+        <div class="modal-content modal-form">
             <h2>✏️ Редактировать запись</h2>
             <form id="editForm" method="POST">
                 <input type="hidden" id="edit_id" name="id">
+
                 <div class="form-group">
-                    <label for="edit_name">Название *</label>
+                    <label for="edit_name">Название <span class="req">*</span></label>
                     <input type="text" id="edit_name" name="name" required>
                 </div>
+
                 <div class="form-group">
-                    <label for="edit_link">Ссылка</label>
-                    <input type="text" id="edit_link" name="link" placeholder="https://... (или оставьте пустым, если есть код)">
+                    <label for="edit_category">🏷️ Категория</label>
+                    <select id="edit_category" name="category_select">{{ cat_options|safe }}</select>
+                    <input type="text" id="edit_category_custom" name="category_custom"
+                           placeholder="или введите свою" class="form-custom-hidden">
+                    <input type="hidden" id="edit_category_hidden" name="category" value="">
                 </div>
+
                 <div class="form-group">
-                    <label for="tags_edit">Теги</label>
+                    <label for="tags_edit">🔖 Теги</label>
                     <div class="tags-input-wrapper">
                         <div class="tags-chips" id="tagsEditWrapper">
-                            <input type="text" class="tag-chip-input" id="tagsEditInput" placeholder="тег и Enter" autocomplete="off">
+                            <input type="text" class="tag-chip-input" id="tagsEditInput"
+                                   placeholder="тег и Enter" autocomplete="off">
                         </div>
                         <div class="tags-suggestions" id="tagsEditSuggestions"></div>
                     </div>
                     <input type="hidden" id="tags_edit" name="tags" value="">
                 </div>
+
                 <div class="form-group">
-                    <label for="edit_desc">Описание</label>
-                    <textarea id="edit_desc" name="desc" rows="4"></textarea>
+                    <label for="edit_desc">📝 Описание</label>
+                    <textarea id="edit_desc" name="desc" rows="3"></textarea>
                 </div>
+
                 <div class="form-group">
-                    <label for="edit_category">Категория</label>
-                    <select id="edit_category" name="category_select">{{ cat_options|safe }}</select>
-                    <input type="text" id="edit_category_custom" name="category_custom" placeholder="или введите свою" style="margin-top:4px; display:none; font-size:0.9rem;">
-                    <input type="hidden" id="edit_category_hidden" name="category" value="">
+                    <label for="edit_link">🔗 Ссылка
+                        <span class="form-hint-inline">(или добавьте код ниже)</span>
+                    </label>
+                    <input type="text" id="edit_link" name="link">
                 </div>
-                <div class="form-group code-editor-group">
-                    <div class="code-editor-head">
-                        <label>💻 Код</label>
-                        <select id="code_lang_edit">
-                            <option value="">— язык —</option>
-                            <option value="python">Python</option>
-                            <option value="sql">SQL</option>
-                            <option value="javascript">JavaScript</option>
-                            <option value="json">JSON</option>
-                            <option value="bash">Bash</option>
-                            <option value="powershell">PowerShell</option>
-                            <option value="yaml">YAML</option>
-                            <option value="ini">INI / conf</option>
-                            <option value="html">HTML</option>
-                            <option value="css">CSS</option>
-                            <option value="xml">XML</option>
-                            <option value="plaintext">Другое</option>
-                        </select>
-                        <button type="button" class="code-editor-toggle" id="codeToggleBtnEdit">▼ Раскрыть</button>
+
+                <!-- NEW: спойлер кода (авто-раскрывается, если код уже есть) -->
+                <details class="form-code-details" id="editCodeDetails">
+                    <summary>💻 Код <span class="details-hint">(необязательно)</span></summary>
+                    <div class="form-group">
+                        <div class="code-lang-row">
+                            <select id="code_lang_edit" name="code_lang_edit">
+                                <option value="">— язык —</option>
+                                <option value="python">Python</option>
+                                <option value="sql">SQL</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="html">HTML</option>
+                                <option value="css">CSS</option>
+                                <option value="bash">Bash / Shell</option>
+                                <option value="powershell">PowerShell</option>
+                                <option value="json">JSON</option>
+                                <option value="yaml">YAML</option>
+                                <option value="xml">XML</option>
+                                <option value="php">PHP</option>
+                                <option value="ruby">Ruby</option>
+                                <option value="go">Go</option>
+                                <option value="rust">Rust</option>
+                                <option value="java">Java</option>
+                                <option value="c">C</option>
+                                <option value="cpp">C++</option>
+                                <option value="csharp">C#</option>
+                                <option value="ini">INI</option>
+                                <option value="toml">TOML</option>
+                                <option value="markdown">Markdown</option>
+                                <option value="diff">Diff</option>
+                                <option value="text">Простой текст</option>
+                            </select>
+                            <button type="button" class="data-btn" id="codeEditClearBtn"
+                                    style="padding:2px 10px; font-size:0.7rem;"
+                                    title="Очистить поле кода">✖ Очистить</button>
+                        </div>
+                        <textarea id="code_edit" name="code" rows="6" class="code-textarea"
+                                  placeholder="Код или удалите его полностью"></textarea>
                     </div>
-                    <div class="code-editor-body" id="codeEditorBodyEdit">
-                        <textarea id="code_edit" name="code" placeholder="Код (Python, SQL, ...)" spellcheck="false"></textarea>
-                    </div>
-                </div>
+                </details>
+
                 <div class="modal-actions">
                     <button type="button" class="btn btn-secondary" id="closeEditModalBtn">Отмена</button>
                     <button type="submit" class="btn">💾 Сохранить</button>
@@ -2334,6 +2495,9 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         ОСТАЛЬНЫЕ МОДАЛКИ
+         ================================================================ -->
     <div class="modal" id="categoriesModal" role="dialog" aria-modal="true">
         <div class="modal-content">
             <h2>✏️ Управление категориями</h2>
@@ -2374,67 +2538,10 @@
         </div>
     </div>
 
-	<div class="modal" id="storageSettingsModal" role="dialog" aria-modal="true" style="z-index: 1300;">
-        <div class="modal-content" style="max-width:640px;">
-            <h2>🗄️ Источник данных</h2>
-
-            <div id="storageInfoBox" style="background:var(--input-bg); border:1px solid var(--card-border); border-radius:10px; padding:12px 14px; margin-bottom:16px; font-size:0.85rem; line-height:1.6;">
-                <div style="color:var(--meta-color); text-align:center;">Загрузка...</div>
-            </div>
-
-            <div class="form-group">
-                <label for="dataBackendSelect">Хранилище</label>
-                <select id="dataBackendSelect">
-                    <option value="xlsx">📊 XLSX-файл (классика)</option>
-                    <option value="sqlite">🗄️ SQLite (рекомендуется для сети)</option>
-                </select>
-                <div style="color:var(--meta-color); font-size:0.75rem; margin-top:4px;">
-                    После смены бэкенда <b>перезапустите сервер</b>. При первом запуске SQLite
-                    данные автоматически импортируются из XLSX.
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="dataSourceInput">Путь к XLSX-файлу (пусто — по умолчанию)</label>
-                <input type="text" id="dataSourceInput" placeholder="\\server\share\реестр.xlsx  или  D:\data\реестр.xlsx" style="font-family:monospace; font-size:0.9rem;">
-                <div style="color:var(--meta-color); font-size:0.75rem; margin-top:4px;">
-                    Поддерживаются локальные и UNC-пути. Пример: <code>\\nas\share\reestr.xlsx</code>
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="sqlitePathInput">Путь к SQLite-файлу (пусто — по умолчанию)</label>
-                <input type="text" id="sqlitePathInput" placeholder="reestr.db" style="font-family:monospace; font-size:0.9rem;">
-            </div>
-
-            <div class="form-group">
-                <label for="codeCollapsedInput">Показывать строк кода (компактно)</label>
-                <input type="number" id="codeCollapsedInput" min="1" max="50" value="5" style="max-width:100px;">
-            </div>
-
-            <div class="form-group">
-                <label class="toggle-row" for="codeHighlightToggle" style="margin-top:4px;">
-                    <input type="checkbox" id="codeHighlightToggle" checked>
-                    <span class="toggle-label">Подсвечивать синтаксис (highlight.js)</span>
-                </label>
-            </div>
-
-            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:14px;">
-                <button type="button" class="data-btn" id="migrateXlsxToSqliteBtn" style="flex:1; justify-content:center;">
-                    <span class="data-icon">📥</span><span>Импорт XLSX → SQLite</span>
-                </button>
-                <button type="button" class="data-btn" id="migrateSqliteToXlsxBtn" style="flex:1; justify-content:center;">
-                    <span class="data-icon">📤</span><span>Экспорт SQLite → XLSX</span>
-                </button>
-            </div>
-
-            <div class="modal-actions">
-                <button type="button" class="btn btn-secondary" onclick="closePluginModal('storageSettingsModal')">Закрыть</button>
-                <button type="button" class="btn" id="saveStorageSettingsBtn">💾 Сохранить</button>
-            </div>
-        </div>
-    </div>
-
+    <!-- ================================================================
+         НАСТРОЙКИ
+         Вкладки: Оформление / Инструменты и данные / Хранилище / Плагины
+         ================================================================ -->
     <div class="modal" id="appearanceModal" role="dialog" aria-modal="true">
         <div class="modal-content modal-settings">
             <div class="settings-header">
@@ -2444,11 +2551,15 @@
 
             <div class="settings-tabs" role="tablist">
                 <button type="button" class="settings-tab active" data-tab="tab-appearance">🎨 Оформление</button>
-                <button type="button" class="settings-tab" data-tab="tab-tools">🔧 Инструменты</button>
+                <button type="button" class="settings-tab" data-tab="tab-tools-data">🔧 Инструменты и данные</button>
+                <button type="button" class="settings-tab" data-tab="tab-storage">💾 Хранилище</button>
                 <button type="button" class="settings-tab" data-tab="tab-plugins">🔌 Плагины</button>
             </div>
 
             <div class="settings-body">
+                <!-- ==========================================================
+                     Вкладка: Оформление
+                     ========================================================== -->
                 <div class="settings-panel active" id="tab-appearance">
                     <div class="settings-columns">
                         <div class="settings-column">
@@ -2607,152 +2718,234 @@
                     </div>
                 </div>
 
-				<div class="settings-panel" id="tab-tools">
-					<div class="tools-tab-grid">
+                <!-- ==========================================================
+                     Вкладка: Инструменты и данные
+                     NEW: три секции — Инструменты / Импорт / Экспорт,
+                     сетка кнопок в 2–3 колонки, плагины — плитками.
+                     ========================================================== -->
+                <div class="settings-panel" id="tab-tools-data">
 
-						<!-- ============ ИНСТРУМЕНТЫ ============ -->
-						<div class="tools-card">
-							<div class="tools-card-head">
-								<span class="tools-card-icon">🛠️</span>
-								<div class="tools-card-titles">
-									<div class="tools-card-title">Инструменты</div>
-									<div class="tools-card-sub">Действия и анализ</div>
-								</div>
-							</div>
-							<div class="tools-card-body">
-								<button class="data-btn" id="presentationBtn" title="Режим презентации (Ctrl+Shift+P)">
-									<span class="data-icon">🎬</span>
-									<span class="data-btn-text">
-										<span class="data-btn-label">Режим презентации</span>
-										<span class="data-btn-hint">Скрыть всё лишнее</span>
-									</span>
-								</button>
-								{% for item in ui.tools_tab %}
-								<button class="data-btn"
-										data-plugin-action="{{ item.action }}"
-										data-plugin-modal="{{ item.modal_id or '' }}"
-										data-plugin-url="{{ item.url or '' }}"
-										data-plugin-js="{{ item.js or '' }}">
-									<span class="data-icon">{{ item.icon or '🔗' }}</span>
-									<span class="data-btn-text">
-										<span class="data-btn-label">{{ item.label }}</span>
-									</span>
-								</button>
-								{% endfor %}
-							</div>
-						</div>
+                    <!-- Секция: Инструменты -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <span>🔧 Инструменты</span>
+                            <span class="section-count">{{ ui.tools_tab|length + 1 }}</span>
+                        </div>
+                        <div class="data-panel data-panel-grid">
+                            <button class="data-btn" id="presentationBtn" title="Режим презентации (Ctrl+Shift+P)">
+                                <span class="data-icon">🎬</span><span>Режим презентации</span>
+                            </button>
+                            {% for item in ui.tools_tab %}
+                            <button class="data-btn"
+                                    data-plugin-action="{{ item.action }}"
+                                    data-plugin-modal="{{ item.modal_id or '' }}"
+                                    data-plugin-url="{{ item.url or '' }}"
+                                    data-plugin-js="{{ item.js or '' }}">
+                                <span class="data-icon">{{ item.icon or '🔗' }}</span>
+                                <span>{{ item.label }}</span>
+                            </button>
+                            {% endfor %}
+                        </div>
+                    </div>
 
-						<!-- ============ ДАННЫЕ ============ -->
-						<div class="tools-card">
-							<div class="tools-card-head">
-								<span class="tools-card-icon">💾</span>
-								<div class="tools-card-titles">
-									<div class="tools-card-title">Данные</div>
-									<div class="tools-card-sub">Импорт · Экспорт · Источник</div>
-								</div>
-							</div>
-							<div class="tools-card-body">
-								{% if ui.data_tab %}
-								<div class="tools-card-subhead">📥 Импорт</div>
-								<div class="tools-compact-btns">
-									{% for item in ui.data_tab %}
-									{% set is_import = 'импорт' in item.label|lower or 'import' in item.id|lower %}
-									{% if is_import %}
-									<button class="data-btn data-btn-compact"
-											data-plugin-action="{{ item.action }}"
-											data-plugin-modal="{{ item.modal_id or '' }}"
-											data-plugin-url="{{ item.url or '' }}"
-											data-plugin-js="{{ item.js or '' }}"
-											title="{{ item.label }}">
-										<span class="data-icon">{{ item.icon or '🔗' }}</span>
-										<span class="data-btn-text">
-											<span class="data-btn-label">{{ item.label }}</span>
-										</span>
-									</button>
-									{% endif %}
-									{% endfor %}
-								</div>
+                    <!-- Секция: Импорт -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <span>📥 Импорт</span>
+                            <span class="section-count">{{ ui.import_tab|length }}</span>
+                        </div>
+                        <div class="data-panel data-panel-grid">
+                            {% for item in ui.import_tab %}
+                            <button class="data-btn" data-plugin-action="{{ item.action }}"
+                                    data-plugin-modal="{{ item.modal_id or '' }}"
+                                    data-plugin-url="{{ item.url or '' }}"
+                                    data-plugin-js="{{ item.js or '' }}">
+                                <span class="data-icon">{{ item.icon or '📥' }}</span>
+                                <span>{{ item.label }}</span>
+                            </button>
+                            {% endfor %}
+                            {% if not ui.import_tab %}
+                            <div class="data-empty">Нет доступных импортёров</div>
+                            {% endif %}
+                        </div>
+                    </div>
 
-								<div class="tools-card-subhead" style="margin-top:10px;">📤 Экспорт</div>
-								<div class="tools-compact-btns">
-									{% for item in ui.data_tab %}
-									{% set is_import = 'импорт' in item.label|lower or 'import' in item.id|lower %}
-									{% if not is_import %}
-									<button class="data-btn data-btn-compact"
-											data-plugin-action="{{ item.action }}"
-											data-plugin-modal="{{ item.modal_id or '' }}"
-											data-plugin-url="{{ item.url or '' }}"
-											data-plugin-js="{{ item.js or '' }}"
-											title="{{ item.label }}">
-										<span class="data-icon">{{ item.icon or '🔗' }}</span>
-										<span class="data-btn-text">
-											<span class="data-btn-label">{{ item.label }}</span>
-										</span>
-									</button>
-									{% endif %}
-									{% endfor %}
-								</div>
-								{% endif %}
+                    <!-- Секция: Экспорт -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <span>📤 Экспорт</span>
+                            <span class="section-count">{{ ui.export_tab|length }}</span>
+                        </div>
+                        <div class="data-panel data-panel-grid">
+                            {% for item in ui.export_tab %}
+                            <button class="data-btn" data-plugin-action="{{ item.action }}"
+                                    data-plugin-modal="{{ item.modal_id or '' }}"
+                                    data-plugin-url="{{ item.url or '' }}"
+                                    data-plugin-js="{{ item.js or '' }}">
+                                <span class="data-icon">{{ item.icon or '📤' }}</span>
+                                <span>{{ item.label }}</span>
+                            </button>
+                            {% endfor %}
+                            {% if not ui.export_tab %}
+                            <div class="data-empty">Нет доступных экспортёров</div>
+                            {% endif %}
+                        </div>
+                    </div>
 
-								<div class="tools-card-divider"></div>
+                    <!-- Секция: Установленные плагины (плитки в сетке) -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">
+                            <span>🔌 Установленные плагины</span>
+                        </div>
+                        <div id="pluginsList" class="plugins-brief-grid">
+                            <div class="plugins-brief-loading">Загрузка...</div>
+                        </div>
+                        <div class="settings-hint">
+                            Управление — на вкладке «🔌 Плагины». Здесь — только краткая сводка.
+                        </div>
+                    </div>
+                </div>
 
-								<div class="tools-card-subhead">🗄️ Хранилище</div>
-								<button class="data-btn data-btn-accent" id="openStorageSettingsBtn">
-									<span class="data-icon">🗄️</span>
-									<span class="data-btn-text">
-										<span class="data-btn-label">Источник данных</span>
-										<span class="data-btn-hint">XLSX или SQLite · миграция · пути</span>
-									</span>
-								</button>
-							</div>
-						</div>
+                <!-- ==========================================================
+                     Вкладка: Хранилище (компактный дизайн v2)
+                     ========================================================== -->
+                <div class="settings-panel" id="tab-storage">
 
-						<!-- ============ ПЛАГИНЫ (на всю ширину, в несколько колонок) ============ -->
-						<div class="tools-card tools-card-full">
-							<div class="tools-card-head">
-								<span class="tools-card-icon">🔌</span>
-								<div class="tools-card-titles">
-									<div class="tools-card-title">Плагины</div>
-									<div class="tools-card-sub">Активные расширения реестра</div>
-								</div>
-								<button class="tools-card-action" id="pluginsRefreshBtnCompact" title="Обновить">🔄</button>
-							</div>
-							<div class="tools-card-body">
-								<div id="pluginsList" class="plugins-compact-grid">
-									<div class="tools-empty">Загрузка...</div>
-								</div>
-								<div class="tools-card-hint">
-									Положите <code>.py</code> в <code>plugins/</code> и нажмите «🔁 Перезагрузить» на вкладке «🔌 Плагины».
-								</div>
-							</div>
-						</div>
-
-					</div>
-				</div>
-
-                <div class="settings-panel" id="tab-plugins">
-                    <div class="plugins-toolbar">
-                        <button class="data-btn" id="pluginsRefreshBtn" style="flex:1; justify-content:center;">
+                    <!-- Строка 1: тип + обновить -->
+                    <div class="storage-topbar">
+                        <div class="storage-segmented" role="radiogroup" aria-label="Тип хранилища">
+                            <input type="radio" name="storageType" value="sqlite" id="storageTypeSqlite">
+                            <label for="storageTypeSqlite" class="storage-seg-btn">
+                                <span class="seg-ico">⚡</span><span>SQLite</span>
+                            </label>
+                            <input type="radio" name="storageType" value="excel" id="storageTypeExcel">
+                            <label for="storageTypeExcel" class="storage-seg-btn">
+                                <span class="seg-ico">📊</span><span>Excel</span>
+                            </label>
+                        </div>
+                        <button type="button" class="data-btn" id="storageReloadInfoBtn" title="Обновить информацию">
                             <span class="data-icon">🔄</span><span>Обновить</span>
                         </button>
-                        <button class="data-btn" id="pluginsCreateBtn" style="flex:1; justify-content:center;">
-                            <span class="data-icon">➕</span><span>Создать плагин</span>
+                    </div>
+
+                    <!-- Строка 2: статистика -->
+                    <div class="storage-stats">
+                        <div class="storage-stat">
+                            <span class="ss-icon">📋</span>
+                            <div>
+                                <div class="ss-value" id="storageRecordsCount">0</div>
+                                <div class="ss-label">записей</div>
+                            </div>
+                        </div>
+                        <div class="storage-stat">
+                            <span class="ss-icon">🗑</span>
+                            <div>
+                                <div class="ss-value" id="storageTrashCount">0</div>
+                                <div class="ss-label">в корзине</div>
+                            </div>
+                        </div>
+                        <div class="storage-stat">
+                            <span class="ss-icon">💾</span>
+                            <div>
+                                <div class="ss-value" id="storageCurrentType">—</div>
+                                <div class="ss-label">тип</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Строка 3: путь к БД (показывается только для SQLite) -->
+                    <div class="storage-block" id="storageSqliteSection">
+                        <div class="storage-block-head"><span>📁 Путь к базе SQLite</span></div>
+                        <div class="storage-path-row">
+                            <input type="text" id="storageSqlitePath" value="reestr.db"
+                                   placeholder="reestr.db, D:\data\reestr.db или \\server\share\reestr.db"
+                                   class="storage-path-input">
+                            <button type="button" class="storage-icon-btn" id="storageCheckPathBtn"
+                                    title="Проверить доступность">🔍</button>
+                            <button type="button" class="btn" id="storageSwitchBtn"
+                                    style="padding:6px 16px; font-size:0.85rem; border-radius:8px;">💾 Применить</button>
+                        </div>
+                        <div id="storagePathStatus" class="storage-path-status"></div>
+                        <div class="storage-hint">
+                            Относительный — от папки проекта. Для совместной работы —
+                            общая сетевая папка: <code>\\server\share\reestr.db</code>.
+                            WAL на сетевых путях отключается автоматически.
+                        </div>
+                    </div>
+
+                    <!-- Строка 4: файлы -->
+                    <div class="storage-block">
+                        <div class="storage-block-head"><span>ℹ️ Файлы хранилища</span></div>
+                        <div id="storageFilesInfo" class="storage-files-info"></div>
+                    </div>
+
+                    <!-- Строка 5: импорт | экспорт -->
+                    <div class="storage-io-grid">
+                        <div class="storage-block">
+                            <div class="storage-block-head"><span>📥 Импорт из XLSX</span></div>
+                            <label class="storage-drop" for="storageImportXlsxFile">
+                                <span>📁</span><span>Выбрать файл .xlsx</span>
+                            </label>
+                            <input type="file" id="storageImportXlsxFile" accept=".xlsx" style="display:none;">
+                            <div class="storage-path-row" style="margin-top:6px;">
+                                <input type="text" id="storageImportPath"
+                                       placeholder="или путь к файлу..."
+                                       class="storage-path-input">
+                                <button type="button" class="storage-icon-btn" id="storageImportByPathBtn"
+                                        title="Импортировать по пути">📥</button>
+                            </div>
+                            <div id="storageImportProgress" class="storage-import-progress"></div>
+                        </div>
+
+                        <div class="storage-block">
+                            <div class="storage-block-head"><span>📤 Экспорт в XLSX</span></div>
+                            <p class="storage-hint" style="margin-top:0; margin-bottom:8px;">
+                                Скачать текущее хранилище в формате <code>.xlsx</code>.
+                            </p>
+                            <button type="button" class="data-btn" id="storageExportXlsxBtn">
+                                <span class="data-icon">📤</span><span>Скачать xlsx</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Строка 6: опасная зона -->
+                    <div class="storage-danger">
+                        <button type="button" class="data-btn danger" id="storageResetBtn">
+                            <span class="data-icon">💥</span><span>Очистить SQLite-БД</span>
                         </button>
-                        <button class="data-btn" id="reloadPluginsBtn" style="flex:1; justify-content:center;">
-                            <span class="data-icon">🔁</span><span>Перезагрузить</span>
+                        <span class="storage-hint">
+                            Удалит все записи из БД. Файл <code>реестр.xlsx</code> не тронет.
+                        </span>
+                    </div>
+
+                </div>
+
+                <!-- ==========================================================
+                     Вкладка: Плагины (управление)
+                     ========================================================== -->
+                <div class="settings-panel" id="tab-plugins">
+                    <div class="plugins-toolbar">
+                        <button class="data-btn" id="pluginsRefreshBtn" style="flex:1; justify-content:center; min-width:120px;">
+                            <span class="data-icon">🔄</span><span>Обновить</span>
+                        </button>
+                        <button class="data-btn" id="pluginsCreateBtn" style="flex:1; justify-content:center; min-width:120px;">
+                            <span class="data-icon">➕</span><span>Создать плагин</span>
                         </button>
                     </div>
                     <div id="pluginsManagerList" class="plugins-manager-list">
                         <div style="color:var(--meta-color); text-align:center; padding:14px 0;">Загрузка...</div>
                     </div>
                     <div style="color:var(--meta-color); font-size:0.72rem; margin-top:10px; line-height:1.5;">
-                        Хуки перезагружаются полностью. Новые роуты — тоже. Старые роуты от изменённых плагинов остаются до перезапуска сервера.
+                        После сохранения/удаления/переключения нажмите <b>🔁 Перезагрузить плагины</b>.
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКА: ПРОФИЛЬ
+         ================================================================ -->
     <div class="modal" id="settingsModal" role="dialog" aria-modal="true">
         <div class="modal-content">
             <h2>⚙️ Профиль</h2>
@@ -2776,6 +2969,9 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКА: ВЫБОР ЭМОДЗИ
+         ================================================================ -->
     <div class="modal" id="emojiPickerModal" role="dialog" aria-modal="true">
         <div class="modal-content" style="max-width:560px;">
             <h2>🎨 Иконка группы</h2>
@@ -2799,6 +2995,9 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКА: РЕДАКТОР ПЛАГИНА
+         ================================================================ -->
     <div class="modal" id="pluginEditorModal" role="dialog" aria-modal="true">
         <div class="modal-content modal-wide" style="max-width: 920px;">
             <h2>✏️ Редактор плагина</h2>
@@ -2819,6 +3018,9 @@
         </div>
     </div>
 
+    <!-- ================================================================
+         МОДАЛКИ ПЛАГИНОВ
+         ================================================================ -->
     {% for item in ui.modals %}
     <div class="modal" id="{{ item.id }}" data-plugin-modal="1" role="dialog" aria-modal="true">
         <div class="modal-content{% if item.width == 'wide' %} modal-wide{% endif %}">
@@ -2828,6 +3030,9 @@
     </div>
     {% endfor %}
 
+    <!-- ================================================================
+         ПАНЕЛЬ МАССОВЫХ ОПЕРАЦИЙ
+         ================================================================ -->
     <div class="bulk-panel" id="bulkPanel">
         <span class="bulk-panel-info">Выбрано: <span class="bulk-num" id="bulkCount">0</span></span>
         <button class="bulk-btn" id="bulkFavoriteBtn">⭐ В избранное</button>
@@ -2847,6 +3052,42 @@
         <button id="undoToastBtn">Отменить</button>
     </div>
 
+    <!-- ================================================================
+         ИНЛАЙН-СКРИПТ: "Только код" больше не чекбокс — логика переехала
+         в app.js. Здесь оставлен только fallback на случай, если app.js
+         не успел загрузиться к моменту открытия модалки.
+         ================================================================ -->
+    <script>
+    (function () {
+        // Открытие add-модалки — страховка (если app.js упал)
+        var fallbackAttached = false;
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('#openAddModal');
+            if (!btn) return;
+            setTimeout(function() {
+                var m = document.getElementById('addModal');
+                if (!m) {
+                    if (window.__reestrLog) window.__reestrLog('error', 'Fallback: #addModal не найден');
+                    return;
+                }
+                if (m.classList.contains('active')) return;
+                if (window.__reestrLog) window.__reestrLog('log', 'Fallback: открываю addModal');
+                m.classList.add('active');
+                // Закрываем спойлер кода при fallback-открытии
+                var details = document.getElementById('addCodeDetails');
+                if (details) details.open = false;
+                if (!fallbackAttached) {
+                    fallbackAttached = true;
+                    var cb = document.getElementById('closeAddModalBtn');
+                    if (cb) cb.addEventListener('click', function() { m.classList.remove('active'); });
+                    m.addEventListener('click', function(ev) {
+                        if (ev.target === m) m.classList.remove('active');
+                    });
+                }
+            }, 40);
+        }, true);
+    })();
+    </script>
     <script>
         window.REESTR_DATA = {
             total: {{ total }},
@@ -2860,3 +3101,4 @@
     </script>
 </body>
 </html>
+
