@@ -17,11 +17,20 @@ import signal
 import sys
 
 from plugins_loader import (
-    load_plugins, reload_plugins, run_hook, get_loaded_plugins, HOOK_NAMES,
+    load_plugins, run_hook, get_loaded_plugins, HOOK_NAMES,
     get_plugins_info, read_plugin_code, save_plugin_code,
     delete_plugin, set_enabled, validate_plugin_name, check_syntax,
     collect_ui_slots, get_custom_themes, add_custom_theme, delete_custom_theme,
-    get_all_hooks, reset_hooks,
+    get_all_hooks, reset_hooks, reload_plugins,
+)
+
+from storage import (
+    get_storage, ExcelStorage, SqliteStorage, Storage,
+    HEADERS as STORAGE_HEADERS,
+    safe_int as _st_safe_int,
+    safe_str as _st_safe_str,
+    validate_code_lang,
+    validate_sqlite_path,          # NEW
 )
 
 # ============================================================
@@ -45,10 +54,9 @@ SCHEMA_VERSION_FILE = str(BASE_DIR / "schema_version.json")
 
 BACKUP_KEEP_DAYS = 30
 TRASH_KEEP_DAYS = 30
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 MAX_NAME_LEN, MAX_DESC_LEN, MAX_TAGS_LEN, MAX_CATEGORY_LEN, MAX_URL_LEN = 200, 5000, 500, 200, 4096
-MAX_CODE_LEN = 500_000
-MAX_CODE_LANG_LEN = 40
+MAX_CODE_LEN = 20000
 
 HEADERS = [
     'id', 'name_del', 'link_del', 'description', 'category',
@@ -57,12 +65,6 @@ HEADERS = [
     'code', 'code_lang'
 ]
 
-# Хранилище (переключается через settings.json)
-_STORAGE = {
-    'backend': 'xlsx',          # 'xlsx' | 'sqlite'
-    'sqlite_file': str(BASE_DIR / "reestr.db"),
-    'sqlite': None,             # SqliteStorage instance
-}
 
 # ============================================================
 # ЛОГИРОВАНИЕ
@@ -142,7 +144,7 @@ if _extra:
             ALLOWED_ORIGINS.append(_o)
 ALLOWED_ORIGINS = tuple(ALLOWED_ORIGINS)
 
-CSRF_EXEMPT_PATHS = {'/api/csrf-token'}
+CSRF_EXEMPT_PATHS = {'/api/csrf-token', '/api/js-log'}
 CSRF_EXEMPT_METHODS = {'GET', 'HEAD', 'OPTIONS'}
 
 
@@ -216,6 +218,36 @@ def api_csrf_debug():
     })
 
 
+@app.route('/api/js-log', methods=['POST'])
+def api_js_log():
+    """Принимает логи и ошибки JavaScript с клиента.
+    Пишет в консоль сервера с префиксом [JS] или [JS-ERROR]."""
+    try:
+        raw = request.get_data(as_text=True) or ''
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = {'message': raw[:500]}
+
+        kind = str(data.get('kind', 'log'))[:20]
+        msg = str(data.get('message', ''))[:2000]
+        extra = str(data.get('extra', ''))[:2000]
+
+        if kind == 'error':
+            log.error("[JS-ERROR] %s", msg)
+            if extra:
+                for line in extra.split('\n')[:10]:
+                    log.error("[JS-ERROR]   %s", line)
+        else:
+            log.info("[JS] %s", msg)
+            if extra:
+                for line in extra.split('\n')[:10]:
+                    log.info("[JS]   %s", line)
+    except Exception as e:
+        log.error("[JS-LOG] Не удалось обработать: %s", e)
+    return '', 204
+
+
 @app.before_request
 def _check_origin_and_csrf():
     if request.method in ('POST', 'PUT', 'DELETE', 'PATCH'):
@@ -229,24 +261,129 @@ def _check_origin_and_csrf():
                         pass
                     else:
                         log.warning("[CSRF] Заблокирован Origin=%s", origin)
-                        return jsonify({'success': False, 'error': 'CSRF: origin'}), 403
+                        return jsonify({'success': False, 'error': 'CSRF: origin', 'code': 'CSRF'}), 403
                 except Exception:
-                    return jsonify({'success': False, 'error': 'CSRF: origin'}), 403
+                    return jsonify({'success': False, 'error': 'CSRF: origin', 'code': 'CSRF'}), 403
         csrf_resp = _check_csrf()
         if csrf_resp is not None:
             return csrf_resp
 
 
 # ============================================================
-# EXCEL LOCK-FILE проверка
+# STORAGE
 # ============================================================
-def _excel_is_locked_by_external():
-    try:
-        base = Path(EXCEL_FILE)
-        lock = base.parent / ('~$' + base.name)
-        return lock.exists()
-    except Exception:
-        return False
+_storage = None
+
+
+def get_current_storage():
+    global _storage
+    if _storage is None:
+        _storage = get_storage(load_settings(), BASE_DIR)
+        log.info("[STORAGE] Тип: %s", _storage.type)
+    return _storage
+
+
+def switch_storage(new_type, extra=None):
+    global _storage
+    cur = load_settings()
+    storage_cfg = cur.get('storage') or {}
+    storage_cfg['type'] = new_type
+    # NEW: помечаем, что пользователь выбрал вручную —
+    # это отключает принудительную миграцию Excel → SQLite при рестарте.
+    storage_cfg['_explicit'] = True
+    if extra:
+        storage_cfg.update(extra)
+    cur['storage'] = storage_cfg
+    save_settings(cur)
+    if _storage is not None:
+        try:
+            _storage.close()
+        except Exception:
+            pass
+    _storage = get_storage(cur, BASE_DIR)
+    invalidate_cache(full=True)
+    log.info("[STORAGE] Переключено на: %s", _storage.type)
+    return _storage
+
+
+def _auto_migrate_to_sqlite(base_dir):
+    """
+    Одноразовая миграция Excel → SQLite при старте сервера.
+
+    Условия срабатывания:
+      - файл-маркер .sqlite_migrated отсутствует
+      - в settings.json storage.type != "sqlite"
+      - НЕТ флага _explicit (пользователь явно не выбирал Excel)
+      - есть что импортировать (реестр.xlsx), либо БД уже пуста/отсутствует
+
+    Логика:
+      - если в reestr.db уже есть данные — просто переключаем тип в settings
+      - если БД пуста или отсутствует, а xlsx есть — импортируем
+      - если xlsx нет — просто переключаем тип (пустая БД)
+      - если импорт упал — не переключаем (чтобы не потерять данные)
+
+    После успеха создаётся маркер .sqlite_migrated — миграция больше не сработает.
+    """
+    marker = Path(base_dir) / '.sqlite_migrated'
+    if marker.exists():
+        return
+
+    settings = _load_json(SETTINGS_FILE, {})
+    if not isinstance(settings, dict):
+        settings = {}
+    cfg = settings.get('storage') or {}
+    cur_type = str(cfg.get('type') or 'excel').lower()
+
+    # Уже на SQLite — просто ставим маркер и выходим
+    if cur_type == 'sqlite':
+        marker.write_text('already-sqlite', encoding='utf-8')
+        return
+
+    # NEW: пользователь явно выбрал Excel — не мигрируем принудительно.
+    if cfg.get('_explicit') and cur_type == 'excel':
+        marker.write_text('user-chose-excel', encoding='utf-8')
+        log.info("[MIGRATION] Пользователь явно выбрал Excel — миграция пропущена")
+        return
+
+    excel_file = Path(base_dir) / 'реестр.xlsx'
+    db_file = Path(base_dir) / 'reestr.db'
+
+    # Проверяем, есть ли данные в существующей БД
+    db_has_data = False
+    if db_file.exists():
+        try:
+            st = SqliteStorage(str(db_file))
+            try:
+                db_has_data = len(st.get_all_records()) > 0
+            finally:
+                st.close()
+        except Exception as e:
+            log.error("[MIGRATION] Проверка БД: %s", e)
+
+    imported = 0
+    if not db_has_data and excel_file.exists():
+        log.info("[MIGRATION] Импорт %s → %s", excel_file.name, db_file.name)
+        try:
+            st = SqliteStorage(str(db_file))
+            try:
+                imported = st.import_from_xlsx(str(excel_file))
+            finally:
+                st.close()
+        except Exception as e:
+            log.error("[MIGRATION] Импорт не удался: %s", e)
+            return
+    elif not excel_file.exists():
+        log.info("[MIGRATION] Файл %s не найден — переключаюсь на пустую SQLite",
+                 excel_file.name)
+
+    # Обновляем settings.json
+    settings.setdefault('storage', {})
+    settings['storage']['type'] = 'sqlite'
+    settings['storage'].setdefault('sqlite', {'path': 'reestr.db'})
+    _save_json(SETTINGS_FILE, settings)
+
+    marker.write_text(f'migrated:imported={imported}', encoding='utf-8')
+    log.info("[MIGRATION] Переключено на SQLite (импортировано: %d записей)", imported)
 
 
 # ============================================================
@@ -254,15 +391,9 @@ def _excel_is_locked_by_external():
 # ============================================================
 _excel_write_lock = threading.RLock()
 _CACHE = {
-    'mtime': None,
-    'groups': None,
-    'categories': None,
-    'category_counts': None,
-    'total': 0,
-    'all_names': None,
-    'all_tags': None,
-    'trash_count': 0,
-    'uncategorized_count': 0,
+    'groups': None, 'categories': None,
+    'category_counts': None, 'total': 0, 'all_names': None,
+    'all_tags': None, 'trash_count': 0, 'uncategorized_count': 0,
     'url_index': None,
 }
 
@@ -271,29 +402,24 @@ def invalidate_cache(full=True, groups=False, categories=False, tags=False,
                      url_index=False, trash=False):
     global _CACHE
     if full:
-        _CACHE = {k: (None if v is not None and not isinstance(v, (int, float)) else v)
-                  for k, v in _CACHE.items()}
-        _CACHE['mtime'] = None
-        _CACHE['total'] = 0
-        _CACHE['trash_count'] = 0
-        _CACHE['uncategorized_count'] = 0
+        _CACHE = {
+            'groups': None, 'categories': None,
+            'category_counts': None, 'total': 0, 'all_names': None,
+            'all_tags': None, 'trash_count': 0, 'uncategorized_count': 0,
+            'url_index': None,
+        }
         return
-    if groups:
-        _CACHE['groups'] = None
+    if groups: _CACHE['groups'] = None
     if categories:
         _CACHE['categories'] = None
         _CACHE['category_counts'] = None
-    if tags:
-        _CACHE['all_tags'] = None
-    if url_index:
-        _CACHE['url_index'] = None
-    if trash:
-        _CACHE['trash_count'] = None
-    _CACHE['mtime'] = None
+    if tags: _CACHE['all_tags'] = None
+    if url_index: _CACHE['url_index'] = None
+    if trash: _CACHE['trash_count'] = None
 
 
 # ============================================================
-# URL / СТРОКИ
+# УТИЛИТЫ
 # ============================================================
 _FORBIDDEN_URL_SCHEMES = ('javascript:', 'data:', 'vbscript:')
 
@@ -384,16 +510,6 @@ def is_valid_datetime_str(s):
         return False
 
 
-def _ensure_column(ws, name):
-    """Возвращает номер колонки с данным именем, добавляя её при необходимости."""
-    headers = [c.value for c in ws[1]]
-    if name in headers:
-        return headers.index(name) + 1
-    col = len(headers) + 1
-    ws.cell(row=1, column=col, value=name)
-    return col
-
-
 # ============================================================
 # SCHEMA VERSION
 # ============================================================
@@ -419,180 +535,33 @@ def _save_schema_version(v):
         log.error("Не удалось сохранить schema_version: %s", e)
 
 
-def _migrate_workbook(wb):
-    """Применяет миграции схемы. Возвращает True, если что-то поменялось."""
-    current = _load_schema_version()
-    if current >= SCHEMA_VERSION:
-        return False
-    changed = False
-    ws = wb.active or wb.create_sheet("Sheet")
-    headers = [c.value for c in ws[1]] if ws.max_row >= 1 else []
-
-    # 0 → 1: click_count, last_clicked_at
-    if current < 1:
-        added = []
-        for col in ('click_count', 'last_clicked_at'):
-            if col not in headers:
-                ws.cell(row=1, column=len(headers) + 1, value=col)
-                headers.append(col)
-                added.append(col)
-        if added:
-            log.info("[SCHEMA] Добавлены колонки: %s", ', '.join(added))
-            changed = True
-
-    # 1 → 2: code, code_lang
-    if current < 2:
-        added = []
-        for col in ('code', 'code_lang'):
-            if col not in headers:
-                ws.cell(row=1, column=len(headers) + 1, value=col)
-                headers.append(col)
-                added.append(col)
-        if added:
-            log.info("[SCHEMA] Добавлены колонки: %s", ', '.join(added))
-            changed = True
-
-    if changed:
-        _save_schema_version(SCHEMA_VERSION)
-    return changed
-
-
 # ============================================================
-# STORAGE: backend selection + read/write
+# ОБЁРТКИ STORAGE
 # ============================================================
-def _apply_storage_paths_from_settings(s):
-    """Обновляет глобальные EXCEL_FILE/EXCEL_BACKUP и _STORAGE по settings."""
-    global EXCEL_FILE, EXCEL_BACKUP
-
-    src = str(s.get('data_source', '') or '').strip()
-    if src:
-        p = Path(src)
-        if not p.is_absolute():
-            p = (BASE_DIR / p).resolve()
-        EXCEL_FILE = str(p)
-    else:
-        EXCEL_FILE = str(BASE_DIR / "реестр.xlsx")
-
-    EXCEL_BACKUP = str(Path(EXCEL_FILE).with_suffix('.bak'))
-
-    sp = str(s.get('sqlite_path', '') or '').strip()
-    if sp:
-        p = Path(sp)
-        if not p.is_absolute():
-            p = (BASE_DIR / p).resolve()
-        _STORAGE['sqlite_file'] = str(p)
-    else:
-        _STORAGE['sqlite_file'] = str(BASE_DIR / "reestr.db")
+def safe_read_workbook():
+    return get_current_storage().read_workbook()
 
 
-def _init_storage():
-    """Инициализирует бэкенд хранения согласно settings.json."""
-    try:
-        s = load_settings()
-    except Exception:
-        s = {}
-
-    _apply_storage_paths_from_settings(s)
-
-    backend = str(s.get('data_backend', 'xlsx')).lower()
-    if backend not in ('xlsx', 'sqlite'):
-        backend = 'xlsx'
-
-    _STORAGE['backend'] = backend
-    _STORAGE['sqlite'] = None
-
-    if backend == 'sqlite':
-        try:
-            from db import open_storage
-            stor = open_storage(_STORAGE['sqlite_file'], HEADERS)
-
-            # Авто-импорт при первом запуске
-            if stor.is_empty():
-                if Path(EXCEL_FILE).exists():
-                    try:
-                        n = stor.import_from_xlsx(EXCEL_FILE)
-                        log.info("[STORAGE] Импортировано из xlsx: %d строк", n)
-                    except Exception as e:
-                        log.error("[STORAGE] Импорт из xlsx не удался: %s", e)
-                else:
-                    log.info("[STORAGE] Нет xlsx — начинаем с пустой БД")
-
-            _STORAGE['sqlite'] = stor
-            info = stor.info()
-            log.info("[STORAGE] Backend=sqlite, db=%s, rows=%d, wal=%s",
-                     info['db_path'], info['count'], info['wal_mode'])
-        except Exception as e:
-            log.error("[STORAGE] SQLite недоступен: %s. Откат на xlsx.", e)
-            _STORAGE['backend'] = 'xlsx'
-            _STORAGE['sqlite'] = None
-    else:
-        log.info("[STORAGE] Backend=xlsx, file=%s", EXCEL_FILE)
-
-    Path(BACKUP_DIR).mkdir(exist_ok=True)
+def read_workbook():
+    if has_request_context():
+        cached = getattr(g, '_reestr_wb', None)
+        if cached is not None:
+            return cached
+    wb = get_current_storage().read_workbook()
+    if has_request_context():
+        g._reestr_wb = wb
+    return wb
 
 
-def _save_xlsx_mirror(wb):
-    """Сохраняет копию в xlsx (для SQLite-режима — как зеркало/бэкап)."""
-    tmp = EXCEL_FILE + '.mirror.tmp'
-    try:
-        wb.save(tmp)
-        os.replace(tmp, EXCEL_FILE)
-        try:
-            shutil.copy2(EXCEL_FILE, EXCEL_BACKUP)
-        except Exception:
-            pass
-    except Exception:
-        try:
-            if Path(tmp).exists():
-                os.remove(tmp)
-        except Exception:
-            pass
-        raise
-
-
-# ============================================================
-# АТОМАРНАЯ ЗАПИСЬ
-# ============================================================
 def atomic_save_workbook(wb):
-    with _excel_write_lock:
-        backend = _STORAGE['backend']
-
-        # --- SQLite ---
-        if backend == 'sqlite' and _STORAGE['sqlite'] is not None:
-            _STORAGE['sqlite'].from_workbook(wb)
-            try:
-                _save_xlsx_mirror(wb)
-            except Exception as e:
-                log.warning("[STORAGE] Не удалось сохранить xlsx-зеркало: %s", e)
-            try:
-                _ensure_daily_backup()
-            except Exception as e:
-                log.warning("Не удалось сделать дневной бэкап: %s", e)
-            return
-
-        # --- XLSX ---
-        if _excel_is_locked_by_external():
-            log.warning("[EXCEL] Файл открыт в Excel (~$lock). Сохранение пропущено.")
-            raise RuntimeError("Файл реестр.xlsx сейчас открыт в Excel. Закройте его и попробуйте снова.")
-        tmp = EXCEL_FILE + '.tmp'
+    get_current_storage().atomic_save_workbook(wb)
+    # NEW: сбрасываем per-request кэш книги, чтобы последующие
+    # read_workbook() в этом же запросе увидели свежие данные.
+    if has_request_context():
         try:
-            wb.save(tmp)
-            os.replace(tmp, EXCEL_FILE)
+            g._reestr_wb = None
         except Exception:
-            try:
-                if Path(tmp).exists():
-                    os.remove(tmp)
-            except Exception:
-                pass
-            raise
-        try:
-            shutil.copy2(EXCEL_FILE, EXCEL_BACKUP)
-        except Exception as e:
-            log.warning("Не удалось обновить .bak: %s", e)
-        try:
-            _ensure_daily_backup()
-        except Exception as e:
-            log.warning("Не удалось сделать дневной бэкап: %s", e)
+            pass
 
 
 def _ensure_daily_backup():
@@ -601,9 +570,10 @@ def _ensure_daily_backup():
     target = Path(BACKUP_DIR) / f"реестр_{today}.xlsx"
     if target.exists():
         return
-    if not Path(EXCEL_FILE).exists():
+    try:
+        shutil.copy2(EXCEL_FILE, target)
+    except Exception:
         return
-    shutil.copy2(EXCEL_FILE, target)
     try:
         cutoff = time.time() - BACKUP_KEEP_DAYS * 86400
         for f in Path(BACKUP_DIR).glob("реестр_*.xlsx"):
@@ -616,8 +586,19 @@ def _ensure_daily_backup():
         pass
 
 
+def get_next_id(ws=None):
+    return get_current_storage().get_next_id()
+
+
+def get_next_order_index(ws, name_del):
+    st = get_current_storage()
+    if st.type == 'sqlite':
+        return st._next_order(name_del)
+    return st._next_order(ws, name_del)
+
+
 # ============================================================
-# JSON load/save
+# JSON
 # ============================================================
 def _try_recover_json(path):
     try:
@@ -746,6 +727,8 @@ def load_settings():
     d = _load_json(SETTINGS_FILE, {})
     if not isinstance(d, dict):
         d = {}
+    # NEW: тема по умолчанию — «Светлая»
+    d.setdefault('theme', 'light')
     d.setdefault('custom_toolbar_buttons', [])
     d.setdefault('profile', {'name': 'Admin', 'color': '#f5d76e'})
     d.setdefault('shimmer_color_1', '')
@@ -757,12 +740,7 @@ def load_settings():
     d.setdefault('header_anim', True)
     d.setdefault('mesh_style', 'off')
     d.setdefault('card_strip', 'left')
-    # --- storage ---
-    d.setdefault('data_backend', 'xlsx')
-    d.setdefault('data_source', '')
-    d.setdefault('sqlite_path', '')
-    d.setdefault('code_collapsed_lines', 5)
-    d.setdefault('code_highlight', True)
+    d.setdefault('storage', {'type': 'sqlite', 'sqlite': {'path': 'reestr.db'}})
     return d
 
 
@@ -793,406 +771,137 @@ def log_action(action, target_id=None, target_name='', details=None):
 
 
 # ============================================================
-# РАБОТА С EXCEL/БД
-# ============================================================
-def safe_read_workbook():
-    try:
-        if Path(EXCEL_FILE).exists():
-            wb = load_workbook(EXCEL_FILE)
-            if wb is not None:
-                return wb
-    except Exception as e:
-        log.error("[EXCEL] Ошибка чтения: %s", e)
-        if Path(EXCEL_BACKUP).exists():
-            try:
-                shutil.copy2(EXCEL_BACKUP, EXCEL_FILE)
-                wb = load_workbook(EXCEL_FILE)
-                if wb is not None:
-                    return wb
-            except Exception:
-                pass
-    try:
-        wb = Workbook()
-        ws = wb.active or wb.create_sheet("Sheet")
-        ws.append(HEADERS)
-        wb.save(EXCEL_FILE)
-        try:
-            shutil.copy2(EXCEL_FILE, EXCEL_BACKUP)
-        except Exception:
-            pass
-        _save_schema_version(SCHEMA_VERSION)
-        return wb
-    except Exception as e:
-        log.critical("[EXCEL] КРИТИЧНО: %s", e)
-        wb = Workbook()
-        ws = wb.active or wb.create_sheet("Sheet")
-        ws.append(HEADERS)
-        return wb
-
-
-def read_workbook():
-    if has_request_context():
-        cached = getattr(g, '_reestr_wb', None)
-        if cached is not None:
-            return cached
-
-    backend = _STORAGE['backend']
-
-    if backend == 'sqlite' and _STORAGE['sqlite'] is not None:
-        wb = _STORAGE['sqlite'].to_workbook()
-    else:
-        wb = safe_read_workbook()
-
-    ws = wb.active or wb.create_sheet("Sheet")
-    headers = [c.value for c in ws[1]]
-    needs_save = False
-    for col in HEADERS:
-        if col not in headers:
-            ws.cell(row=1, column=len(headers) + 1, value=col)
-            headers.append(col)
-            needs_save = True
-
-    if _migrate_workbook(wb):
-        needs_save = True
-
-    if needs_save:
-        atomic_save_workbook(wb)
-
-    if has_request_context():
-        g._reestr_wb = wb
-    return wb
-
-
-def get_next_id(ws):
-    m = 0
-    for row in ws.iter_rows(min_row=2, max_col=1, values_only=True):
-        v = safe_int(row[0], 0)
-        if v > m:
-            m = v
-    return m + 1
-
-
-def get_next_order_index(ws, name_del):
-    m = -1
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[1] == name_del:
-            o = safe_int(row[7], 0)
-            if o > m:
-                m = o
-    return m + 1
-
-
-# ============================================================
 # CRUD
 # ============================================================
 def add_record(name, link, desc='', category='', favorite=0, tags='',
                code='', code_lang=''):
+    """Добавить запись. Разрешает пустую ссылку, если есть код."""
     name = _truncate(name, MAX_NAME_LEN).strip()
     desc = _truncate(desc, MAX_DESC_LEN).strip()
     category = _truncate(category, MAX_CATEGORY_LEN).strip()
     tags = _truncate(tags, MAX_TAGS_LEN).strip()
+    code = _truncate(code, MAX_CODE_LEN)
+    code_lang = validate_code_lang(code_lang)
     link = sanitize_link(link)
-    code = _truncate(code, MAX_CODE_LEN) if code else ''
-    code_lang = _truncate(code_lang, MAX_CODE_LANG_LEN).strip() if code_lang else ''
-
-    has_link = bool(link)
-    has_code = bool(code and code.strip())
-    if not name or (not has_link and not has_code):
+    if not name:
         return None
-
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        new_id = get_next_id(ws)
-        order_index = get_next_order_index(ws, name)
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        ws.append([new_id, name, link, desc, category, '', favorite, order_index,
-                   now, now, '', tags, 0, '', code, code_lang])
-        atomic_save_workbook(wb)
+    if not link and not (code or '').strip():
+        return None
+    st = get_current_storage()
+    new_id = st.add_record(name, link, desc, category, favorite, tags, code, code_lang)
+    if new_id is None:
+        return None
     invalidate_cache(full=False, groups=True, categories=True, tags=True, url_index=True)
-    log_action('add', new_id, name, {'link': link[:100], 'category': category,
-                                       'has_code': has_code, 'code_lang': code_lang})
+    log_action('add', new_id, name, {'link': link[:100], 'category': category})
     run_hook('on_add', record_id=new_id, name=name, link=link,
-             description=desc, category=category, tags=tags)
+             description=desc, category=category, tags=tags,
+             code=code, code_lang=code_lang)
     return new_id
 
 
 def soft_delete_record(record_id):
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                ws.cell(row=idx, column=11, value=now)
-                break
-        atomic_save_workbook(wb)
+    get_current_storage().soft_delete_record(record_id)
     invalidate_cache(full=False, groups=True, categories=True, tags=True, trash=True)
 
 
 def hard_delete_record(record_id):
-    name = None
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                name = safe_str(row[1])
-                ws.delete_rows(idx)
-                break
-        atomic_save_workbook(wb)
+    name = get_current_storage().hard_delete_record(record_id)
     invalidate_cache(full=True)
     if name is not None:
         run_hook('on_hard_delete', record_id=record_id, name=name)
 
 
 def restore_from_trash(record_id):
-    changed = False
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                if not safe_str(row[10] if len(row) > 10 else ''):
-                    return False
-                ws.cell(row=idx, column=11, value='')
-                changed = True
-                break
-        if changed:
-            atomic_save_workbook(wb)
-    if changed:
+    ok = get_current_storage().restore_from_trash(record_id)
+    if ok:
         invalidate_cache(full=False, groups=True, categories=True, tags=True, trash=True)
-    return changed
+    return ok
 
 
 def update_record(record_id, name, link, desc, category, favorite, tags='',
-                  code='', code_lang=''):
+                  code=None, code_lang=None):
+    """Обновить запись. Разрешает очистить ссылку, если у записи есть код."""
     name = _truncate(name, MAX_NAME_LEN).strip()
     desc = _truncate(desc, MAX_DESC_LEN).strip()
     category = _truncate(category, MAX_CATEGORY_LEN).strip()
     tags = _truncate(tags, MAX_TAGS_LEN).strip()
     link = sanitize_link(link)
-    code = _truncate(code, MAX_CODE_LEN) if code else ''
-    code_lang = _truncate(code_lang, MAX_CODE_LANG_LEN).strip() if code_lang else ''
-
-    has_link = bool(link)
-    has_code = bool(code and code.strip())
-    if not name or (not has_link and not has_code):
-        return False
-
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        col_code = _ensure_column(ws, 'code')
-        col_lang = _ensure_column(ws, 'code_lang')
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                ws.cell(row=idx, column=2, value=name)
-                ws.cell(row=idx, column=3, value=link)
-                ws.cell(row=idx, column=4, value=desc)
-                ws.cell(row=idx, column=5, value=category)
-                ws.cell(row=idx, column=7, value=favorite)
-                ws.cell(row=idx, column=10, value=now)
-                ws.cell(row=idx, column=12, value=tags)
-                ws.cell(row=idx, column=col_code, value=code)
-                ws.cell(row=idx, column=col_lang, value=code_lang)
-                break
-        atomic_save_workbook(wb)
+    if code is not None:
+        code = _truncate(code, MAX_CODE_LEN)
+    if code_lang is not None:
+        code_lang = validate_code_lang(code_lang)
+    get_current_storage().update_record(record_id, name, link, desc, category,
+                                        favorite, tags,
+                                        code=code, code_lang=code_lang)
     invalidate_cache(full=True)
-    return True
 
 
 def update_category_only(record_id, category):
-    category = _truncate(category, MAX_CATEGORY_LEN).strip()
-    old_cat, name_hook = '', ''
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        found = False
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                old_cat = safe_str(row[4])
-                name_hook = safe_str(row[1])
-                ws.cell(row=idx, column=5, value=category)
-                ws.cell(row=idx, column=10, value=now)
-                found = True
-                break
-        if not found:
-            return False
-        atomic_save_workbook(wb)
+    info = get_current_storage().update_category_only(record_id, category)
+    if not info:
+        return False
     invalidate_cache(full=True)
-    run_hook('on_category_change', record_id=record_id, name=name_hook,
-             old_category=old_cat, new_category=category)
+    run_hook('on_category_change', record_id=record_id, name=info['name'],
+             old_category=info['old'], new_category=info['new'])
     return True
 
 
 def update_description(record_id, desc):
-    desc = _truncate(desc, MAX_DESC_LEN).strip()
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        found = False
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                ws.cell(row=idx, column=4, value=desc)
-                ws.cell(row=idx, column=10, value=now)
-                found = True
-                break
-        if not found:
-            return False
-        atomic_save_workbook(wb)
-    invalidate_cache(full=False, groups=True)
-    return True
+    ok = get_current_storage().update_description(record_id, desc)
+    if ok:
+        invalidate_cache(full=False, groups=True)
+    return ok
 
 
 def move_record_to_group(record_id, new_group):
-    new_group = _truncate(new_group, MAX_NAME_LEN).strip()
-    old_group = ''
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        new_order = get_next_order_index(ws, new_group)
-        found = False
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                old_group = safe_str(row[1])
-                ws.cell(row=idx, column=2, value=new_group)
-                ws.cell(row=idx, column=8, value=new_order)
-                ws.cell(row=idx, column=10, value=now)
-                found = True
-                break
-        if not found:
-            return False
-        atomic_save_workbook(wb)
+    info = get_current_storage().move_record_to_group(record_id, new_group)
+    if not info:
+        return False
     invalidate_cache(full=True)
-    run_hook('on_move_to_group', record_id=record_id, from_group=old_group, to_group=new_group)
+    run_hook('on_move_to_group', record_id=record_id,
+             from_group=info['old'], to_group=info['new'])
     return True
 
 
 def toggle_favorite_record(record_id):
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                current = safe_int(row[6], 0)
-                ws.cell(row=idx, column=7, value=1 if current == 0 else 0)
-                break
-        atomic_save_workbook(wb)
+    get_current_storage().toggle_favorite_record(record_id)
     invalidate_cache(full=True)
 
 
 def increment_click(record_id):
-    click_count, name, url = 0, '', ''
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(record_id):
-                current = safe_int(row[12] if len(row) > 12 else 0, 0)
-                click_count = current + 1
-                name = safe_str(row[1]); url = safe_str(row[2])
-                ws.cell(row=idx, column=13, value=click_count)
-                ws.cell(row=idx, column=14, value=now)
-                break
-        atomic_save_workbook(wb)
-    if click_count > 0:
-        run_hook('on_click', record_id=record_id, name=name, link=url, click_count=click_count)
+    info = get_current_storage().increment_click(record_id)
+    if info:
+        run_hook('on_click', record_id=record_id, name=info['name'],
+                 link=info['link'], click_count=info['count'])
 
 
 def update_order(group_name, ordered_ids):
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        id_to_row = {}
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if row[1] == group_name:
-                id_to_row[safe_int(row[0], -1)] = idx
-        for order, rid in enumerate(ordered_ids):
-            rid = safe_int(rid, -1)
-            if rid in id_to_row:
-                ws.cell(row=id_to_row[rid], column=8, value=order)
-        atomic_save_workbook(wb)
+    get_current_storage().update_order(group_name, ordered_ids)
     invalidate_cache(full=True)
 
 
 def sort_links_in_group(group_name, sort_by='name', asc=True):
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        rows = []
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if row[1] == group_name:
-                rows.append({'idx': idx, 'row': row})
-        if not rows:
-            return False
-        if sort_by == 'name':
-            rows.sort(key=lambda x: safe_str(x['row'][2]).lower(), reverse=not asc)
-        elif sort_by == 'date':
-            rows.sort(key=lambda x: safe_str(x['row'][9]), reverse=not asc)
-        elif sort_by == 'type':
-            def tk(x):
-                link = safe_str(x['row'][2])
-                if link.startswith('\\\\') or link.startswith('//'):
-                    return '3_net'
-                if '://' in link:
-                    from urllib.parse import urlparse
-                    host = urlparse(link).netloc.split(':')[0]
-                    if host.startswith('192.168.') or host.startswith('10.'):
-                        return '1_lan'
-                    return '0_wan'
-                return '2_other'
-            rows.sort(key=tk, reverse=not asc)
-        for o, it in enumerate(rows):
-            ws.cell(row=it['idx'], column=8, value=o)
-        atomic_save_workbook(wb)
-    invalidate_cache(full=True)
-    return True
+    ok = get_current_storage().sort_links_in_group(group_name, sort_by, asc)
+    if ok:
+        invalidate_cache(full=True)
+    return ok
+
+
+def get_record_by_id(record_id):
+    return get_current_storage().get_record_by_id(record_id)
+
+
+def get_all_categories(ws=None):
+    return get_current_storage().get_all_categories()
+
+
+def get_all_tags(ws=None):
+    return get_current_storage().get_all_tags()
 
 
 # ============================================================
 # ВЫБОРКИ
 # ============================================================
-def get_all_categories(ws):
-    cats = set()
-    for row in ws.iter_rows(min_row=2, max_col=12, values_only=True):
-        if safe_str(row[10]) if len(row) > 10 else '':
-            continue
-        cat = row[4]
-        if cat and str(cat).strip():
-            cats.add(str(cat).strip())
-    return sorted(cats)
-
-
-def get_all_tags(ws):
-    tags = {}
-    for row in ws.iter_rows(min_row=2, max_col=12, values_only=True):
-        if safe_str(row[10]) if len(row) > 10 else '':
-            continue
-        s = safe_str(row[11]) if len(row) > 11 else ''
-        if s:
-            for t in s.split(','):
-                t = t.strip()
-                if t:
-                    tags[t] = tags.get(t, 0) + 1
-    return tags
-
-
-def get_record_by_id(record_id):
-    wb = read_workbook(); ws = wb.active
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if safe_int(row[0], -1) == int(record_id):
-            return {
-                'id': row[0], 'name_del': row[1], 'link_del': row[2],
-                'description': row[3] if len(row) > 3 else '',
-                'category': row[4] if len(row) > 4 else '',
-                'favorite': safe_int(row[6] if len(row) > 6 else 0, 0),
-                'order_index': safe_int(row[7] if len(row) > 7 else 0, 0),
-                'created_at': row[8] if len(row) > 8 else '',
-                'updated_at': row[9] if len(row) > 9 else '',
-                'deleted_at': row[10] if len(row) > 10 else '',
-                'tags': row[11] if len(row) > 11 else '',
-                'click_count': safe_int(row[12] if len(row) > 12 else 0, 0),
-                'last_clicked_at': row[13] if len(row) > 13 else '',
-                'code': row[14] if len(row) > 14 else '',
-                'code_lang': row[15] if len(row) > 15 else ''
-            }
-    return None
-
-
 def format_datetime(dt_str):
     if not dt_str:
         return ''
@@ -1208,7 +917,7 @@ def is_network_path(link):
 
 def format_link_display(link):
     if not link:
-        return '🔗'
+        return '📝'
     if is_network_path(link):
         return '📁'
     try:
@@ -1243,7 +952,8 @@ def group_records(ws, include_deleted=False):
         tags_str = safe_str(row[11]) if len(row) > 11 else ''
         tags = [t.strip() for t in tags_str.split(',') if t.strip()] if tags_str else []
         groups[name].append({
-            'id': row[0], 'link': safe_str(row[2]).strip(),
+            'id': row[0],
+            'link': safe_str(row[2]).strip(),
             'description': safe_str(row[3]).strip(),
             'category': safe_str(row[4]).strip(),
             'favorite': safe_int(row[6] if len(row) > 6 else 0, 0),
@@ -1251,12 +961,14 @@ def group_records(ws, include_deleted=False):
             'created_at': format_datetime(row[8] if len(row) > 8 else ''),
             'updated_at': format_datetime(row[9] if len(row) > 9 else ''),
             'updated_at_iso': safe_str(row[9]) if len(row) > 9 else '',
-            'deleted_at': deleted_at, 'tags': tags, 'tags_str': tags_str,
+            'deleted_at': deleted_at,
+            'tags': tags,
+            'tags_str': tags_str,
             'click_count': safe_int(row[12] if len(row) > 12 else 0, 0),
             'last_clicked_at': safe_str(row[13]) if len(row) > 13 else '',
             'code': safe_str(row[14]) if len(row) > 14 else '',
             'code_lang': safe_str(row[15]) if len(row) > 15 else '',
-            'status': 'unknown'
+            'status': 'unknown',
         })
     for name in groups:
         groups[name].sort(key=lambda x: x['order_index'])
@@ -1274,26 +986,10 @@ def get_names_for_category(ws, category):
 
 
 def get_cached_data():
+    """Кэш данных. Сбрасывается через invalidate_cache."""
     global _CACHE
-    backend = _STORAGE['backend']
-
-    if backend == 'sqlite' and _STORAGE['sqlite'] is not None:
-        try:
-            mtime = _STORAGE['sqlite'].count() * 1000 + os.path.getmtime(_STORAGE['sqlite_file'])
-        except Exception:
-            mtime = None
-        if _CACHE['mtime'] == mtime and _CACHE['groups'] is not None:
-            return _CACHE
-    else:
-        if not Path(EXCEL_FILE).exists():
-            return _CACHE
-        try:
-            mtime = os.path.getmtime(EXCEL_FILE)
-        except OSError:
-            return _CACHE
-        if _CACHE['mtime'] == mtime and _CACHE['groups'] is not None:
-            return _CACHE
-
+    if _CACHE['groups'] is not None:
+        return _CACHE
     wb = read_workbook(); ws = wb.active
     groups = group_records(ws)
     categories = get_all_categories(ws)
@@ -1316,19 +1012,17 @@ def get_cached_data():
                     'category': cat, 'link': item['link']
                 })
     uncategorized = total - sum(category_counts.values())
-    trash_count = 0
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if len(row) > 10:
-            d = safe_str(row[10])
-            if d and is_valid_datetime_str(d):
-                trash_count += 1
+    try:
+        trash_count = get_current_storage().get_trash_count()
+    except Exception:
+        trash_count = 0
     _CACHE.update({
-        'mtime': mtime, 'groups': groups, 'categories': categories,
+        'groups': groups, 'categories': categories,
         'category_counts': category_counts, 'total': total,
         'all_names': sorted(all_names), 'all_tags': all_tags,
         'trash_count': trash_count,
         'uncategorized_count': max(uncategorized, 0),
-        'url_index': url_index
+        'url_index': url_index,
     })
     return _CACHE
 
@@ -1355,13 +1049,11 @@ def _build_sidebar_cats(all_categories, category_counts, category_colors, total,
         if color and not is_valid_hex_color(color):
             color = ''
         style = f' style="--cat-color:{escape(color)};"' if color else ''
-        user_html += (f'<div class="cat-row">'
-                      f'<button class="cat-btn" data-filter="{escape(cat)}" '
+        user_html += (f'<button class="cat-btn" data-filter="{escape(cat)}" '
                       f'data-cat-name="{escape(cat)}" data-cat-count="{count}"{style}>'
                       f'<span class="cat-indicator"></span>'
                       f'<span class="cat-name">{escape(cat)}</span>'
-                      f'<span class="badge">{count}</span></button>'
-                      f'</div>')
+                      f'<span class="badge">{count}</span></button>')
     return all_btn + none_btn + f'<div id="userCategoriesList">{user_html}</div>'
 
 
@@ -1376,39 +1068,9 @@ def _build_datalist(groups):
     return ''.join([f'<option value="{escape(n)}">' for n in sorted(set(groups.keys()))])
 
 
-def _render_code_block(code, lang, collapsed_lines=5):
-    """Рендерит блок кода с подсветкой и компактным режимом."""
-    if not code or not code.strip():
-        return ''
-    lang_attr = escape(lang or 'plaintext')
-    lang_label = escape((lang or 'code').upper())
-    # Экранируем
-    from markupsafe import escape as _esc
-    code_esc = str(_esc(code))
-    line_count = code.count('\n') + 1
-    is_long = line_count > collapsed_lines
-    collapse_class = ' code-collapsed' if is_long else ''
-    return (
-        f'<div class="link-code{collapse_class}" data-lang="{lang_attr}" '
-        f'data-collapsed-lines="{collapsed_lines}" data-total-lines="{line_count}">'
-        f'<div class="link-code-head">'
-        f'<span class="link-code-lang">{lang_label}</span>'
-        f'<span class="link-code-lines">{line_count} строк</span>'
-        + (f'<button type="button" class="link-code-toggle" '
-           f'title="Развернуть/свернуть">▼ Развернуть</button>' if is_long else '')
-        + f'<button type="button" class="link-code-copy" title="Копировать код">📋</button>'
-        f'</div>'
-        f'<pre class="link-code-body"><code class="language-{lang_attr}" '
-        f'style="--collapsed-lines:{collapsed_lines}">{code_esc}</code></pre>'
-        f'</div>'
-    )
-
-
 def _build_cards(groups, category_colors):
     parts = []
     group_icons = load_group_icons()
-    settings = load_settings()
-    collapsed_lines = int(settings.get('code_collapsed_lines', 5) or 5)
     for card_idx, (name, items) in enumerate(groups.items()):
         links_parts = []
         card_cats = set()
@@ -1426,19 +1088,18 @@ def _build_cards(groups, category_colors):
             updated_iso = item['updated_at_iso']
             tags = item.get('tags', [])
             click_count = item.get('click_count', 0)
-            code = item.get('code', '') or ''
+            code_text = item.get('code', '') or ''
             code_lang = item.get('code_lang', '') or ''
-            has_code = bool(code.strip())
             has_link = bool(link)
 
             link_esc = escape(link)
-            if link:
+            if has_link:
                 if is_network_path(link):
                     href, target = 'file://' + link.replace('\\', '/'), 'target="_blank"'
                 else:
                     href, target = link, 'target="_blank" rel="noopener noreferrer"'
             else:
-                href, target = '#', 'data-nolink="1"'
+                href, target = '', ''
 
             color_style = ''
             if category and category in category_colors:
@@ -1449,14 +1110,17 @@ def _build_cards(groups, category_colors):
                             f'data-category="{escape(category)}" role="button" tabindex="0" '
                             f'title="Показать только эту категорию">'
                             f'<span class="meta-ico">🏷️</span>{escape(category)}</span>') if category else ''
+
             fav_class = 'fav-on' if favorite else 'fav-off'
             fav_icon = '⭐' if favorite else '☆'
             fav_html = f'<span class="favorite-btn {fav_class}" data-id="{link_id}" title="Избранное">{fav_icon}</span>'
             item_fav_class = 'is-favorite' if favorite else ''
-            item_code_class = ' has-code' if has_code else ''
-            item_nolink_class = ' no-link' if not has_link else ''
 
-            icon_esc = escape(format_link_display(link) if has_link else ('🧩' if has_code else '🔗'))
+            if has_link:
+                icon_esc = escape(format_link_display(link))
+            else:
+                icon_esc = '💻'
+
             tags_str_attr = escape(','.join(tags))
             desc_html = (f'<div class="desc" data-original="{escape(desc)}" data-id="{link_id}" '
                          f'title="Двойной клик — редактировать">{escape(desc)}</div>')
@@ -1487,30 +1151,46 @@ def _build_cards(groups, category_colors):
                              f'<span class="meta-right">{"".join(meta_right_parts)}</span>'
                              '</div>')
 
-            # Ссылка — либо реальная <a>, либо "код-запись"
+            # --- Ссылка (или заглушка «только код») ---
             if has_link:
                 link_html = (
-                    f'<a href="{escape(href)}" {target} data-full-link="{link_esc}" '
-                    f'data-id="{link_id}" class="smart-link" draggable="false" '
-                    f'title="Клик — копировать">'
+                    f'<a href="{escape(href)}" {target} '
+                    f'data-full-link="{link_esc}" data-id="{link_id}" '
+                    f'class="smart-link" draggable="false" title="Клик — копировать">'
                     f'<span class="link-icon">{icon_esc}</span>'
                     f'<span class="link-display">{escape(link)}</span>'
                     f'</a>'
                 )
             else:
                 link_html = (
-                    f'<span class="smart-link smart-link-nolink" '
-                    f'data-id="{link_id}" title="Без ссылки (только код)">'
+                    f'<span class="smart-link smart-link-code-only" data-id="{link_id}" '
+                    f'title="Запись без ссылки — только код">'
                     f'<span class="link-icon">{icon_esc}</span>'
                     f'<span class="link-display">— только код —</span>'
                     f'</span>'
                 )
 
-            # Блок кода
-            code_html = _render_code_block(code, code_lang, collapsed_lines) if has_code else ''
+            # --- Блок кода ---
+            code_html = ''
+            if code_text.strip():
+                lang_attr = code_lang or 'plaintext'
+                lang_label = (code_lang or 'text').upper()
+                code_esc = escape(code_text)
+                code_html = (
+                    f'<div class="link-code" data-lang="{escape(lang_attr)}" data-id="{link_id}">'
+                    f'  <div class="code-header">'
+                    f'    <span class="code-lang">{escape(lang_label)}</span>'
+                    f'    <span class="code-actions">'
+                    f'      <button type="button" class="code-btn code-copy-btn" title="Скопировать код">📋</button>'
+                    f'      <button type="button" class="code-btn code-expand-btn" title="Развернуть / свернуть">⤢</button>'
+                    f'    </span>'
+                    f'  </div>'
+                    f'  <pre class="code-body"><code class="language-{escape(lang_attr)}">{code_esc}</code></pre>'
+                    f'</div>'
+                )
 
             links_parts.append(f'''
-            <div class="link-item {item_fav_class}{item_code_class}{item_nolink_class}" data-id="{link_id}" data-category="{escape(category)}" data-favorite="{favorite}" data-updated="{escape(updated_iso)}" data-status="unknown" data-tags="{tags_str_attr}">
+            <div class="link-item {item_fav_class}" data-id="{link_id}" data-category="{escape(category)}" data-favorite="{favorite}" data-updated="{escape(updated_iso)}" data-status="unknown" data-tags="{tags_str_attr}">
                 <div class="link-main">
                     <input type="checkbox" class="bulk-checkbox" data-id="{link_id}" aria-label="Выбрать">
                     {fav_html}
@@ -1525,6 +1205,7 @@ def _build_cards(groups, category_colors):
                 {code_html}
                 {meta_html}
             </div>''')
+
         links_html = ''.join(links_parts)
         card_cats_json = json.dumps(sorted(card_cats), ensure_ascii=False)
         card_color = ''
@@ -1554,34 +1235,15 @@ def _build_cards(groups, category_colors):
 
 
 # ============================================================
-# CORE API (для плагинов)
+# CORE API
 # ============================================================
 class CoreAPI:
-    """Интерфейс к ядру реестра для плагинов.
-
-    Пути сделаны @property, чтобы подхватывать изменения после смены
-    data_source / data_backend в настройках.
-    """
-    @property
-    def BASE_DIR(self): return str(BASE_DIR)
-    @property
-    def EXCEL_FILE(self): return EXCEL_FILE
-    @property
-    def EXCEL_BACKUP(self): return EXCEL_BACKUP
-    @property
-    def BACKUP_DIR(self): return BACKUP_DIR
-    @property
-    def LOGS_FILE(self): return LOGS_FILE
-    @property
-    def SETTINGS_FILE(self): return SETTINGS_FILE
-    @property
-    def SECRET_KEY_FILE(self): return SECRET_KEY_FILE
-    @property
-    def SQLITE_FILE(self): return _STORAGE['sqlite_file']
-    @property
-    def data_backend(self): return _STORAGE['backend']
-    @property
-    def storage(self): return _STORAGE['sqlite']
+    BASE_DIR = BASE_DIR
+    EXCEL_FILE = EXCEL_FILE
+    BACKUP_DIR = BACKUP_DIR
+    LOGS_FILE = LOGS_FILE
+    SETTINGS_FILE = SETTINGS_FILE
+    SECRET_KEY_FILE = SECRET_KEY_FILE
 
     def read_workbook(self): return read_workbook()
     def atomic_save_workbook(self, wb): return atomic_save_workbook(wb)
@@ -1621,6 +1283,12 @@ class CoreAPI:
     def load_category_order(self): return load_category_order()
     def save_category_order(self, o): return save_category_order(o)
 
+    def get_storage_type(self):
+        return get_current_storage().type
+
+    def import_from_xlsx(self, path):
+        return get_current_storage().import_from_xlsx(path)
+
     def run_hook(self, hook_name, **kw):
         return run_hook(hook_name, **kw)
 
@@ -1632,7 +1300,7 @@ core = CoreAPI()
 
 
 # ============================================================
-# РОУТЫ: ГЛАВНАЯ И BOOTSTRAP
+# ГЛАВНАЯ
 # ============================================================
 @app.route('/')
 def index():
@@ -1648,18 +1316,6 @@ def index():
     settings = load_settings()
     ui = collect_ui_slots()
     static_version = str(int(time.time()))
-
-    # Кастомные темы — рендерим сразу в HTML, чтобы не мелькала базовая.
-    custom_themes = {}
-    try:
-        for t in get_custom_themes(CUSTOM_THEMES_FILE):
-            custom_themes[t['id']] = {
-                'name': t.get('name', t['id']),
-                'vars': t.get('vars', {}) or {},
-            }
-    except Exception as e:
-        log.warning("Не удалось загрузить кастомные темы: %s", e)
-
     return render_template(
         'index.html',
         static_version=static_version,
@@ -1668,7 +1324,6 @@ def index():
         category_counts=category_counts, total=total,
         all_tags=all_tags, trash_count=trash_count,
         settings=settings, ui=ui,
-        custom_themes=custom_themes,
         sidebar_cats_html=_build_sidebar_cats(all_cats, category_counts, category_colors, total, uncategorized_count),
         cards_html=_build_cards(groups, category_colors),
         cat_options=_build_cat_options(all_cats),
@@ -1677,6 +1332,224 @@ def index():
     )
 
 
+# ============================================================
+# STORAGE API
+# ============================================================
+@app.route('/api/storage/info')
+def api_storage_info():
+    try:
+        st = get_current_storage()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    info = {
+        'success': True,
+        'type': st.type,
+        'db_path': '',
+        'sqlite_exists': False,
+        'sqlite_size': 0,
+        'excel_exists': False,
+        'excel_size': 0,
+        'total_records': 0,
+        'total_in_trash': 0,
+    }
+
+    try:
+        if Path(EXCEL_FILE).exists():
+            info['excel_exists'] = True
+            info['excel_size'] = Path(EXCEL_FILE).stat().st_size
+    except Exception:
+        pass
+
+    try:
+        cfg = (load_settings().get('storage') or {}).get('sqlite') or {}
+        rel = cfg.get('path') or 'reestr.db'
+        p = Path(rel)
+        # NEW: не преобразуем абсолютные и UNC-пути
+        if not p.is_absolute() and not (str(rel).startswith('\\\\') or str(rel).startswith('//')):
+            p = Path(BASE_DIR) / rel
+        if p.exists():
+            info['sqlite_exists'] = True
+            info['sqlite_size'] = p.stat().st_size
+        info['db_path'] = str(p)
+    except Exception:
+        pass
+
+    try:
+        records = st.get_all_records()
+        info['total_records'] = len([r for r in records if not r.get('deleted_at')])
+        info['total_in_trash'] = len([r for r in records if r.get('deleted_at')])
+    except Exception:
+        pass
+
+    return jsonify(info)
+
+
+# NEW: проверка пути без переключения хранилища
+@app.route('/api/storage/validate_path', methods=['POST'])
+def api_storage_validate_path():
+    """Проверяет путь для SQLite-базы, не переключая хранилище."""
+    data = request.get_json() or {}
+    path_str = str(data.get('path', '')).strip()
+    ok, err, resolved, is_net = validate_sqlite_path(path_str, BASE_DIR)
+    return jsonify({
+        'success': ok,
+        'error': err,
+        'resolved': resolved,
+        'is_network': is_net,
+    })
+
+
+# ИЗМЕНЕНО: валидация пути для SQLite + поддержка UNC и абсолютных путей
+@app.route('/api/storage/switch', methods=['POST'])
+def api_storage_switch():
+    data = request.get_json() or {}
+    new_type = str(data.get('type', '')).strip().lower()
+    if new_type not in ('excel', 'sqlite'):
+        return jsonify({'success': False, 'error': 'type: excel или sqlite'}), 400
+
+    if new_type == 'excel':
+        try:
+            switch_storage('excel')
+        except Exception as e:
+            log.exception("[STORAGE] Ошибка переключения на Excel")
+            return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({
+            'success': True,
+            'type': 'excel',
+            'message': 'Хранилище переключено на Excel. Перезагрузите страницу.',
+        })
+
+    # --- SQLite: валидируем путь ---
+    raw_path = str(data.get('sqlite_path', 'reestr.db')).strip() or 'reestr.db'
+    ok, err, resolved, is_net = validate_sqlite_path(raw_path, BASE_DIR)
+    if not ok:
+        return jsonify({'success': False, 'error': err}), 400
+
+    # Сохраняем тот путь, который ввёл пользователь:
+    #   - относительный («reestr.db», «data/db.sqlite») — как есть (портативность)
+    #   - абсолютный («D:\\data\\reestr.db») — как есть
+    #   - UNC («\\\\server\\share\\reestr.db») — как есть
+    stored_path = raw_path
+
+    try:
+        switch_storage('sqlite', extra={
+            'sqlite': {'path': stored_path},
+        })
+    except RuntimeError as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception as e:
+        log.exception("[STORAGE] Ошибка переключения на SQLite")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+    resp = {
+        'success': True,
+        'type': 'sqlite',
+        'path': stored_path,
+        'resolved': resolved,
+        'is_network': bool(is_net),
+        'message': 'Хранилище переключено на SQLite. Перезагрузите страницу.',
+    }
+    if is_net:
+        resp['warning'] = (
+            'База на сетевом ресурсе. Одновременная работа нескольких '
+            'пользователей возможна, но медленнее, чем с локальной БД. '
+            'WAL-журнал автоматически отключён.'
+        )
+    return jsonify(resp)
+
+
+@app.route('/api/storage/import_xlsx', methods=['POST'])
+def api_storage_import_xlsx():
+    st = get_current_storage()
+    if st.type == 'excel':
+        return jsonify({
+            'success': False,
+            'error': 'Импорт имеет смысл только для SQLite. Excel уже работает с этим файлом.'
+        }), 400
+
+    if 'file' in request.files:
+        f = request.files['file']
+        if not f.filename or not f.filename.lower().endswith('.xlsx'):
+            return jsonify({'success': False, 'error': 'Ожидается .xlsx'}), 400
+        tmp = str(Path(BASE_DIR) / '_import_storage_tmp.xlsx')
+        try:
+            f.save(tmp)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Сохранение: {e}'}), 500
+        try:
+            n = st.import_from_xlsx(tmp)
+        except Exception as e:
+            try: os.remove(tmp)
+            except Exception: pass
+            return jsonify({'success': False, 'error': f'Импорт: {e}'}), 500
+        try: os.remove(tmp)
+        except Exception: pass
+        invalidate_cache(full=True)
+        log_action('storage_import_xlsx', None, '', {'count': n, 'file': f.filename})
+        return jsonify({'success': True, 'imported': n, 'source': f.filename})
+
+    data = request.get_json() or {}
+    src_path = str(data.get('path', '')).strip()
+    if not src_path:
+        return jsonify({'success': False, 'error': 'Нет файла или path'}), 400
+    if not Path(src_path).exists():
+        return jsonify({'success': False, 'error': f'Файл не найден: {src_path}'}), 404
+    try:
+        n = st.import_from_xlsx(src_path)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Импорт: {e}'}), 500
+    invalidate_cache(full=True)
+    log_action('storage_import_xlsx', None, '', {'count': n, 'path': src_path})
+    return jsonify({'success': True, 'imported': n, 'source': src_path})
+
+
+@app.route('/api/storage/export_xlsx', methods=['POST'])
+def api_storage_export_xlsx():
+    import tempfile
+    st = get_current_storage()
+    try:
+        wb = st.read_workbook()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    tmp_dir = tempfile.gettempdir()
+    out = os.path.join(tmp_dir, f'reestr_export_{int(time.time())}.xlsx')
+    try:
+        wb.save(out)
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Сохранение: {e}'}), 500
+    log_action('storage_export_xlsx', None, '', {'type': st.type})
+    return send_file(
+        out,
+        as_attachment=True,
+        download_name=f'реестр_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@app.route('/api/storage/reset', methods=['POST'])
+def api_storage_reset():
+    st = get_current_storage()
+    if st.type != 'sqlite':
+        return jsonify({'success': False, 'error': 'Только для SQLite'}), 400
+    data = request.get_json() or {}
+    confirm = str(data.get('confirm', ''))
+    if confirm != 'YES_DELETE_ALL':
+        return jsonify({'success': False, 'error': 'Требуется confirm=YES_DELETE_ALL'}), 400
+    try:
+        with st._lock:
+            st._conn.execute('DELETE FROM links')
+            st._conn.commit()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    invalidate_cache(full=True)
+    log_action('storage_reset', None, '', {'type': st.type})
+    return jsonify({'success': True})
+
+
+# ============================================================
+# ПЛАГИНЫ API
+# ============================================================
 @app.route('/api/plugins')
 def api_plugins():
     return jsonify(get_loaded_plugins())
@@ -1711,7 +1584,7 @@ def api_plugins_save():
     err = save_plugin_code(PLUGINS_DIR, name, code, create_backup=True)
     if err:
         return jsonify({'success': False, 'error': err}), 400
-    return jsonify({'success': True, 'message': 'Сохранено. Перезапустите сервер.'})
+    return jsonify({'success': True, 'message': 'Сохранено. Нажмите «Перезагрузить плагины».'})
 
 
 @app.route('/api/plugins/create', methods=['POST'])
@@ -1731,7 +1604,7 @@ def api_plugins_create():
     err = save_plugin_code(PLUGINS_DIR, name, code, create_backup=False)
     if err:
         return jsonify({'success': False, 'error': err}), 400
-    return jsonify({'success': True, 'message': 'Создано. Перезапустите сервер.'})
+    return jsonify({'success': True, 'message': 'Создано. Нажмите «Перезагрузить плагины».'})
 
 
 @app.route('/api/plugins/delete', methods=['POST'])
@@ -1764,36 +1637,26 @@ def api_plugins_check():
 
 @app.route('/api/plugins/reload', methods=['POST'])
 def api_plugins_reload():
-    """Горячая перезагрузка плагинов без перезапуска сервера.
-
-    Хуки и UI-слоты перезагружаются полностью.
-    Новые @app.route из плагинов добавляются.
-    Старые роуты от изменённых плагинов остаются до полного перезапуска сервера
-    (это ограничение Flask — remove_url_rule для blueprint-less роутов недоступен).
-    """
-    # Плагин hot_reload.py может предоставить более умную реализацию,
-    # но если его нет — работаем сами.
     try:
         loaded, errors = reload_plugins(
             PLUGINS_DIR, app, PLUGINS_CONFIG_FILE, core=core
         )
-        log.info("[HOT-RELOAD] Перезагружено плагинов: %d, ошибок: %d",
-                 len(loaded), len(errors))
+        log.info("[RELOAD] Плагинов загружено: %d, ошибок: %d", len(loaded), len(errors))
         return jsonify({
             'success': True,
             'loaded': len(loaded),
             'errors': len(errors),
+            'loaded_list': [p['name'] for p in loaded],
             'error_list': errors,
-            'message': (
-                f'Загружено: {len(loaded)}. Ошибок: {len(errors)}. '
-                'Хуки и UI-слоты перезагружены. Обновите страницу (Ctrl+F5).'
-            ),
         })
     except Exception as e:
-        log.error("[HOT-RELOAD] Ошибка: %s", e)
+        log.exception("[RELOAD] Ошибка перезагрузки")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ============================================================
+# КАСТОМНЫЕ ТЕМЫ
+# ============================================================
 @app.route('/api/custom_themes')
 def api_custom_themes():
     return jsonify({'themes': get_custom_themes(CUSTOM_THEMES_FILE)})
@@ -1828,104 +1691,11 @@ def api_bootstrap():
         'all_tags': data.get('all_tags') or {},
         'categories': data.get('categories') or [],
         'plugins': get_loaded_plugins(),
-        'storage': {
-            'backend': _STORAGE['backend'],
-            'excel_file': EXCEL_FILE,
-            'sqlite_file': _STORAGE['sqlite_file'],
-        },
     })
 
 
 # ============================================================
-# STORAGE API
-# ============================================================
-@app.route('/api/storage/info')
-def api_storage_info():
-    backend = _STORAGE['backend']
-    is_net = EXCEL_FILE.startswith('\\\\') or EXCEL_FILE.startswith('//')
-    out = {
-        'backend': backend,
-        'excel_file': EXCEL_FILE,
-        'excel_backup': EXCEL_BACKUP,
-        'excel_exists': Path(EXCEL_FILE).exists(),
-        'excel_locked': _excel_is_locked_by_external() if backend == 'xlsx' else False,
-        'sqlite_file': _STORAGE['sqlite_file'],
-        'sqlite_exists': Path(_STORAGE['sqlite_file']).exists(),
-        'base_dir': str(BASE_DIR),
-        'is_network_path': is_net,
-    }
-    if _STORAGE['sqlite'] is not None:
-        try:
-            out['sqlite_info'] = _STORAGE['sqlite'].info()
-        except Exception as e:
-            out['sqlite_info'] = {'error': str(e)}
-    return jsonify(out)
-
-
-@app.route('/api/storage/migrate', methods=['POST'])
-def api_storage_migrate():
-    data = request.get_json() or {}
-    direction = str(data.get('direction', 'xlsx_to_sqlite'))
-
-    if _STORAGE['backend'] != 'sqlite' or _STORAGE['sqlite'] is None:
-        return jsonify({'success': False, 'error': 'SQLite не активен. Переключите backend в настройках и перезапустите.'}), 400
-
-    if direction == 'xlsx_to_sqlite':
-        if not Path(EXCEL_FILE).exists():
-            return jsonify({'success': False, 'error': f'Файл {EXCEL_FILE} не найден'}), 404
-        try:
-            n = _STORAGE['sqlite'].import_from_xlsx(EXCEL_FILE)
-            invalidate_cache(full=True)
-            log_action('storage_import_xlsx', None, '', {'rows': n, 'from': EXCEL_FILE})
-            return jsonify({'success': True, 'rows': n, 'from': EXCEL_FILE})
-        except Exception as e:
-            log.error("[STORAGE] import xlsx→sqlite: %s", e)
-            return jsonify({'success': False, 'error': str(e)}), 500
-
-    elif direction == 'sqlite_to_xlsx':
-        try:
-            wb = _STORAGE['sqlite'].to_workbook()
-            _save_xlsx_mirror(wb)
-            log_action('storage_export_xlsx', None, '', {'to': EXCEL_FILE})
-            return jsonify({'success': True, 'to': EXCEL_FILE})
-        except Exception as e:
-            log.error("[STORAGE] export sqlite→xlsx: %s", e)
-            return jsonify({'success': False, 'error': str(e)}), 500
-
-    return jsonify({'success': False, 'error': 'Неизвестное направление'}), 400
-
-
-@app.route('/api/storage/reset', methods=['POST'])
-def api_storage_reset():
-    """Полная очистка активного хранилища."""
-    data = request.get_json() or {}
-    if str(data.get('confirm', '')) != 'YES_RESET':
-        return jsonify({'success': False, 'error': 'Требуется confirm=YES_RESET'}), 400
-
-    try:
-        if _STORAGE['backend'] == 'sqlite' and _STORAGE['sqlite'] is not None:
-            wb = Workbook()
-            ws = wb.active or wb.create_sheet("Sheet")
-            ws.append(HEADERS)
-            _STORAGE['sqlite'].from_workbook(wb)
-            try:
-                _save_xlsx_mirror(wb)
-            except Exception:
-                pass
-        else:
-            wb = Workbook()
-            ws = wb.active or wb.create_sheet("Sheet")
-            ws.append(HEADERS)
-            atomic_save_workbook(wb)
-        invalidate_cache(full=True)
-        log_action('storage_reset', None, '', {'backend': _STORAGE['backend']})
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-# ============================================================
-# CRUD РОУТЫ
+# CRUD-РОУТЫ
 # ============================================================
 @app.route('/add', methods=['POST'])
 def add():
@@ -1942,19 +1712,18 @@ def add():
     code = request.form.get('code', '')
     code_lang = request.form.get('code_lang', '').strip()
 
-    has_link = bool(link)
-    has_code = bool(code and code.strip())
+    if not name:
+        return redirect('/?error=need_name')
 
-    if name and (has_link or has_code):
-        new_id = add_record(name, link, desc, category, 0, tags, code, code_lang)
-        if new_id and group_icon and group_icon != '📌':
-            icons = load_group_icons()
-            icons[name] = group_icon
-            save_group_icons(icons)
-    if name and not has_link and not has_code:
+    has_code = bool((code or '').strip())
+    if not link and not has_code:
         return redirect('/?error=need_link_or_code')
-    if link and not has_link:
-        return redirect('/?error=link_rejected')
+
+    new_id = add_record(name, link, desc, category, 0, tags, code, code_lang)
+    if new_id and group_icon and group_icon != '📌':
+        icons = load_group_icons()
+        icons[name] = group_icon
+        save_group_icons(icons)
     return redirect('/')
 
 
@@ -1965,10 +1734,12 @@ def delete(rid):
         return jsonify({'success': False, 'error': 'Не найдена'}), 404
     soft_delete_record(rid)
     log_action('soft_delete', rid, rec['name_del'])
-    run_hook('on_delete', record_id=rid, name=rec['name_del'], link=rec['link_del'], category=rec['category'])
+    run_hook('on_delete', record_id=rid, name=rec['name_del'],
+             link=rec['link_del'], category=rec['category'])
     return jsonify({'success': True, 'deleted': {
         'name': rec['name_del'], 'link': rec['link_del'],
-        'description': rec['description'], 'category': rec['category'], 'favorite': rec['favorite']}})
+        'description': rec['description'], 'category': rec['category'],
+        'favorite': rec['favorite']}})
 
 
 @app.route('/restore', methods=['POST'])
@@ -1978,17 +1749,18 @@ def restore():
         return jsonify({'success': False, 'error': 'Нет данных'}), 400
     name = data.get('name', '').strip()
     link = sanitize_link(data.get('link', ''))
-    code = data.get('code', '') or ''
-    code_lang = data.get('code_lang', '') or ''
-    if not name or (not link and not (code and code.strip())):
-        return jsonify({'success': False, 'error': 'Нет name/link/code'}), 400
+    code = data.get('code', '')
+    if not name:
+        return jsonify({'success': False, 'error': 'Нет name'}), 400
+    if not link and not (code or '').strip():
+        return jsonify({'success': False, 'error': 'Нет link или code'}), 400
     new_id = add_record(name=name, link=link, desc=data.get('description', ''),
-                        category=data.get('category', ''), favorite=data.get('favorite', 0),
-                        code=code, code_lang=code_lang)
+                        category=data.get('category', ''),
+                        favorite=data.get('favorite', 0),
+                        code=code, code_lang=data.get('code_lang', ''))
     if new_id is None:
         return jsonify({'success': False, 'error': 'Не удалось'}), 400
     log_action('restore', new_id, name)
-    run_hook('on_restore', record_id=new_id, name=name)
     return jsonify({'success': True, 'id': new_id})
 
 
@@ -2005,39 +1777,53 @@ def edit(rid):
     data = request.get_json()
     if not data:
         return 'Ошибка', 400
+
+    rec = get_record_by_id(rid)
+    if not rec:
+        return 'Запись не найдена', 404
+
     name = data.get('name', '').strip()
     link = sanitize_link(data.get('link', ''))
     desc = data.get('desc', '').strip()
     category = data.get('category', '').strip()
     tags = data.get('tags', '').strip()
-    code = data.get('code', '') or ''
-    code_lang = data.get('code_lang', '') or ''
 
-    has_link = bool(link)
-    has_code = bool(code and code.strip())
-    if not name or (not has_link and not has_code):
-        return 'Название и (ссылка или код) обязательны', 400
+    code = data.get('code', None)
+    code_lang = data.get('code_lang', None)
+    has_code = bool((code or '').strip())
+    if not name:
+        return 'Название обязательно', 400
+    if not link and not has_code:
+        return 'Укажите ссылку или код', 400
 
-    rec = get_record_by_id(rid)
-    favorite = rec['favorite'] if rec else 0
+    if code is None:
+        code = rec.get('code', '') or ''
+    if code_lang is None:
+        code_lang = rec.get('code_lang', '') or ''
+
+    if not link and not (code or '').strip():
+        return 'Нужна хотя бы ссылка или код', 400
+
+    favorite = rec.get('favorite', 0)
     changes = {}
-    if rec:
-        if rec['name_del'] != name:
-            changes['name'] = {'from': rec['name_del'], 'to': name}
-        if rec['link_del'] != link:
-            changes['link'] = {'from': rec['link_del'][:150], 'to': link[:150]}
-        if (rec['description'] or '') != desc:
-            changes['desc'] = {'from': (rec['description'] or '')[:100], 'to': desc[:100]}
-        if (rec['category'] or '') != category:
-            changes['category'] = {'from': rec['category'], 'to': category}
-        if (rec.get('code') or '') != code:
-            changes['code'] = {'from': '(code)', 'to': '(code)'}
-        if (rec.get('code_lang') or '') != code_lang:
-            changes['code_lang'] = {'from': rec.get('code_lang', ''), 'to': code_lang}
-    update_record(rid, name, link, desc, category, favorite, tags, code, code_lang)
+    if rec['name_del'] != name:
+        changes['name'] = {'from': rec['name_del'], 'to': name}
+    if rec['link_del'] != link:
+        changes['link'] = {'from': (rec['link_del'] or '')[:150], 'to': link[:150]}
+    if (rec['description'] or '') != desc:
+        changes['desc'] = {'from': (rec['description'] or '')[:100], 'to': desc[:100]}
+    if (rec['category'] or '') != category:
+        changes['category'] = {'from': rec['category'], 'to': category}
+    old_code = rec.get('code', '') or ''
+    if old_code != (code or ''):
+        changes['code'] = {'from': f'(len {len(old_code)})', 'to': f'(len {len(code or "")})'}
+
+    update_record(rid, name, link, desc, category, favorite, tags,
+                  code=code, code_lang=code_lang)
     log_action('edit', rid, name, {'changes': changes})
     run_hook('on_edit', record_id=rid, name=name, link=link,
-             description=desc, category=category, favorite=favorite, tags=tags, changes=changes)
+             description=desc, category=category, favorite=favorite, tags=tags,
+             code=code, code_lang=code_lang, changes=changes)
     return '', 200
 
 
@@ -2050,7 +1836,8 @@ def edit_desc(rid):
     ok = update_description(rid, desc)
     if not ok:
         return jsonify({'success': False, 'error': 'Не найдена'}), 404
-    log_action('edit_desc', rid, rec['name_del'] if rec else '', {'from': (old or '')[:100], 'to': desc[:100]})
+    log_action('edit_desc', rid, rec['name_del'] if rec else '',
+               {'from': (old or '')[:100], 'to': desc[:100]})
     return jsonify({'success': True, 'desc': desc})
 
 
@@ -2063,40 +1850,9 @@ def edit_category(rid):
     ok = update_category_only(rid, cat)
     if not ok:
         return jsonify({'success': False, 'error': 'Не найдена'}), 404
-    log_action('edit_category', rid, rec['name_del'] if rec else '', {'from': old, 'to': cat})
+    log_action('edit_category', rid, rec['name_del'] if rec else '',
+               {'from': old, 'to': cat})
     return jsonify({'success': True, 'category': cat})
-
-
-@app.route('/edit_code/<int:rid>', methods=['POST'])
-def edit_code(rid):
-    """Обновление только кода (без ссылки)."""
-    data = request.get_json() or {}
-    code = data.get('code', '')
-    code_lang = data.get('code_lang', '')
-    rec = get_record_by_id(rid)
-    if not rec:
-        return jsonify({'success': False, 'error': 'Не найдена'}), 404
-    has_link = bool((rec.get('link_del') or '').strip())
-    has_code = bool((code or '').strip())
-    if not has_link and not has_code:
-        return jsonify({'success': False, 'error': 'Нужна ссылка или код'}), 400
-    code = _truncate(code, MAX_CODE_LEN)
-    code_lang = _truncate(code_lang, MAX_CODE_LANG_LEN)
-    with _excel_write_lock:
-        wb = read_workbook(); ws = wb.active
-        col_code = _ensure_column(ws, 'code')
-        col_lang = _ensure_column(ws, 'code_lang')
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-            if safe_int(row[0], -1) == int(rid):
-                ws.cell(row=idx, column=col_code, value=code)
-                ws.cell(row=idx, column=col_lang, value=code_lang)
-                ws.cell(row=idx, column=10, value=now)
-                break
-        atomic_save_workbook(wb)
-    invalidate_cache(full=True)
-    log_action('edit_code', rid, rec['name_del'], {'code_lang': code_lang})
-    return jsonify({'success': True})
 
 
 @app.route('/move_to_group', methods=['POST'])
@@ -2145,10 +1901,12 @@ def sort_group_route():
     data = request.get_json()
     if not data or not data.get('group_name'):
         return jsonify({'success': False, 'error': 'Нет группы'}), 400
-    ok = sort_links_in_group(data['group_name'], data.get('sort_by', 'name'), bool(data.get('asc', True)))
+    ok = sort_links_in_group(data['group_name'], data.get('sort_by', 'name'),
+                             bool(data.get('asc', True)))
     if ok:
         log_action('sort_group', None, data['group_name'],
-                   {'by': data.get('sort_by', 'name'), 'asc': bool(data.get('asc', True))})
+                   {'by': data.get('sort_by', 'name'),
+                    'asc': bool(data.get('asc', True))})
         return jsonify({'success': True})
     return jsonify({'success': False, 'error': 'Не удалось'}), 400
 
@@ -2201,7 +1959,8 @@ def get_categories():
 @app.route('/get_all_tags')
 def get_all_tags_route():
     tags = get_cached_data()['all_tags'] or {}
-    return jsonify([{'name': k, 'count': v} for k, v in sorted(tags.items(), key=lambda x: -x[1])])
+    return jsonify([{'name': k, 'count': v}
+                    for k, v in sorted(tags.items(), key=lambda x: -x[1])])
 
 
 @app.route('/get_names_for_category')
@@ -2319,6 +2078,9 @@ def rename_group():
     return jsonify({'success': True, 'updated': updated})
 
 
+# ============================================================
+# BULK
+# ============================================================
 @app.route('/bulk/move', methods=['POST'])
 def bulk_move():
     data = request.get_json()
@@ -2357,7 +2119,8 @@ def bulk_favorite():
         for idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             rid = safe_int(row[0], -1)
             if rid in idset:
-                snapshot.append({'id': rid, 'old_favorite': safe_int(row[6] if len(row) > 6 else 0, 0)})
+                snapshot.append({'id': rid,
+                                 'old_favorite': safe_int(row[6] if len(row) > 6 else 0, 0)})
                 ws.cell(row=idx, column=7, value=value)
                 count += 1
         atomic_save_workbook(wb)
@@ -2390,7 +2153,8 @@ def bulk_tags():
                     tags.remove(tag)
                 elif action == 'set':
                     tags = [tag]
-                ws.cell(row=idx, column=12, value=_truncate(','.join(tags), MAX_TAGS_LEN))
+                ws.cell(row=idx, column=12,
+                        value=_truncate(','.join(tags), MAX_TAGS_LEN))
                 count += 1
         atomic_save_workbook(wb)
     invalidate_cache(full=True)
@@ -2442,13 +2206,16 @@ def bulk_undo():
             if row_idx is None:
                 continue
             if op == 'bulk_move':
-                ws.cell(row=row_idx, column=5, value=safe_str(item.get('old_category', '')))
+                ws.cell(row=row_idx, column=5,
+                        value=safe_str(item.get('old_category', '')))
                 restored += 1
             elif op == 'bulk_favorite':
-                ws.cell(row=row_idx, column=7, value=safe_int(item.get('old_favorite', 0), 0))
+                ws.cell(row=row_idx, column=7,
+                        value=safe_int(item.get('old_favorite', 0), 0))
                 restored += 1
             elif op == 'bulk_tags':
-                ws.cell(row=row_idx, column=12, value=_truncate(safe_str(item.get('old_tags', '')), MAX_TAGS_LEN))
+                ws.cell(row=row_idx, column=12,
+                        value=_truncate(safe_str(item.get('old_tags', '')), MAX_TAGS_LEN))
                 restored += 1
         if restored:
             atomic_save_workbook(wb)
@@ -2507,56 +2274,19 @@ def save_settings_route():
             cur['mesh_style'] = v
     if 'card_strip' in data:
         v = str(data.get('card_strip', 'left'))
-        if v in ('left', 'hover-fill', 'gradient-full', 'gradient-center', 'top', 'bottom', 'frame', 'off'):
+        if v in ('left', 'hover-fill', 'gradient-full', 'gradient-center',
+                 'top', 'bottom', 'frame', 'off'):
             cur['card_strip'] = v
-
-    # --- storage settings ---
-    if 'data_backend' in data:
-        v = str(data.get('data_backend', 'xlsx')).lower()
-        if v in ('xlsx', 'sqlite'):
-            cur['data_backend'] = v
-    if 'data_source' in data:
-        cur['data_source'] = str(data.get('data_source', ''))[:500].strip()
-    if 'sqlite_path' in data:
-        cur['sqlite_path'] = str(data.get('sqlite_path', ''))[:500].strip()
-    if 'code_collapsed_lines' in data:
-        try:
-            v = int(data.get('code_collapsed_lines', 5))
-            if 1 <= v <= 50:
-                cur['code_collapsed_lines'] = v
-        except (ValueError, TypeError):
-            pass
-    if 'code_highlight' in data:
-        cur['code_highlight'] = bool(data.get('code_highlight', True))
-
-    # Фиксируем СТАРЫЕ значения ДО сохранения
-    old_backend = _STORAGE['backend']
-    old_excel = EXCEL_FILE  # глобал из модуля
-
+    # NEW: разрешаем сохранение темы на сервере (для FOUC-фикса)
+    if 'theme' in data:
+        t = str(data.get('theme', 'light'))[:64]
+        cur['theme'] = t
     save_settings(cur)
-
-    # Сравниваем с фактическим состоянием
-    needs_restart = False
-    new_backend = str(cur.get('data_backend', 'xlsx')).lower()
-    if new_backend != old_backend:
-        needs_restart = True
-
-    src = str(cur.get('data_source', '') or '').strip()
-    if src:
-        p = Path(src)
-        if not p.is_absolute():
-            p = (BASE_DIR / p).resolve()
-        new_excel = str(p)
-    else:
-        new_excel = str(BASE_DIR / "реестр.xlsx")
-    if new_excel != old_excel:
-        needs_restart = True
-
-    return jsonify({'success': True, 'settings': cur, 'needs_restart': needs_restart})
+    return jsonify({'success': True, 'settings': cur})
 
 
 # ============================================================
-# GRACEFUL SHUTDOWN + ATEXIT
+# SHUTDOWN
 # ============================================================
 _shutdown_done = threading.Event()
 
@@ -2568,29 +2298,22 @@ def _cleanup():
     log.info("Завершение работы...")
     try:
         for tmp in Path(BASE_DIR).glob('*.tmp'):
-            try:
-                tmp.unlink()
-                log.info("Удалён временный файл: %s", tmp.name)
-            except Exception:
-                pass
+            try: tmp.unlink()
+            except Exception: pass
         for tmp in Path(BASE_DIR).glob('*.import_tmp'):
-            try:
-                tmp.unlink()
-                log.info("Удалён временный файл импорта: %s", tmp.name)
-            except Exception:
-                pass
-        # mirror-tmp
-        for tmp in Path(BASE_DIR).glob('*.mirror.tmp'):
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
+            try: tmp.unlink()
+            except Exception: pass
     except Exception as e:
         log.error("Ошибка очистки: %s", e)
     try:
         run_hook('on_shutdown')
     except Exception as e:
         log.error("Ошибка on_shutdown: %s", e)
+    try:
+        if _storage is not None:
+            _storage.close()
+    except Exception:
+        pass
     log.info("Сервер остановлен.")
 
 
@@ -2610,62 +2333,50 @@ try:
 except Exception:
     pass
 
+
 # ============================================================
-# BOOTSTRAP — выполняется при импорте модуля.
-# Работает и под WSGI (gunicorn, waitress, PyInstaller-лаунчер).
+# RUN
 # ============================================================
-_BOOTSTRAP_DONE = False
-
-
-def _bootstrap_app():
-    global _BOOTSTRAP_DONE
-    if _BOOTSTRAP_DONE:
-        return _loaded_plugins, _plugin_errors
-    _BOOTSTRAP_DONE = True
-
+if __name__ == '__main__':
     Path(BASE_DIR / 'templates').mkdir(exist_ok=True)
     Path(BASE_DIR / 'static').mkdir(exist_ok=True)
     Path(BACKUP_DIR).mkdir(exist_ok=True)
     Path(PLUGINS_DIR).mkdir(exist_ok=True)
     Path(BASE_DIR / 'logs').mkdir(exist_ok=True)
-
-    _init_storage()
-
-    loaded, errors = [], []
+    # --- Одноразовая миграция Excel → SQLite ---
     try:
-        loaded, errors = load_plugins(PLUGINS_DIR, app, PLUGINS_CONFIG_FILE, core=core)
+        _auto_migrate_to_sqlite(BASE_DIR)
     except Exception as e:
-        log.exception("[BOOTSTRAP] Ошибка загрузки плагинов: %s", e)
-    return loaded, errors
+        log.error("[MIGRATION] Ошибка: %s", e)
+    # ------------------------------------------
+    try:
+        st = get_current_storage()
+        log.info("[STORAGE] Инициализировано: type=%s", st.type)
+        if st.type == 'sqlite':
+            total = len(st.get_all_records())
+            log.info("[STORAGE] Записей в БД: %d", total)
+    except Exception as e:
+        log.error("[STORAGE] Ошибка инициализации: %s", e)
+        raise
 
+    loaded, errors = load_plugins(PLUGINS_DIR, app, PLUGINS_CONFIG_FILE, core=core)
 
-_loaded_plugins, _plugin_errors = _bootstrap_app()
-# ============================================================
-# RUN
-# ============================================================
-if __name__ == '__main__':
     debug_mode = os.environ.get('REESTR_DEBUG') == '1'
     log.info("=" * 60)
     log.info("РЕЕСТР ПОЛЕЗНЫХ ССЫЛОК")
     log.info("=" * 60)
     log.info("Рабочая папка: %s", BASE_DIR)
-    log.info("Storage: %s", _STORAGE['backend'])
-    if _STORAGE['backend'] == 'sqlite':
-        log.info("SQLite: %s", _STORAGE['sqlite_file'])
-        log.info("XLSX-зеркало: %s", EXCEL_FILE)
-    else:
-        log.info("XLSX: %s", EXCEL_FILE)
     log.info("Debug: %s", 'вкл' if debug_mode else 'выкл (REESTR_DEBUG=1)')
     log.info("Разрешённые Origin: %s", ', '.join(ALLOWED_ORIGINS))
-    if _loaded_plugins:
-        log.info("Плагинов загружено: %d", len(_loaded_plugins))
-        for p in _loaded_plugins:
+    if loaded:
+        log.info("Плагинов загружено: %d", len(loaded))
+        for p in loaded:
             mark = '✓' if p.get('enabled', True) else '⊘'
             log.info("  %s %s v%s — %s", mark, p['name'], p['version'],
-                     (p['description'] or '')[:60])
-    if _plugin_errors:
-        log.warning("Ошибок загрузки: %d", len(_plugin_errors))
-        for e in _plugin_errors:
+                     p['description'][:60])
+    if errors:
+        log.warning("Ошибок загрузки: %d", len(errors))
+        for e in errors:
             log.warning("  ✗ %s: %s", e['file'], e['error'])
     log.info("=" * 60)
 
