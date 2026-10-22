@@ -6,7 +6,7 @@ from datetime import datetime
 from openpyxl import load_workbook
 
 __version__ = "1.0"
-__description__ = "Импорт записей из XLSX"
+__description__ = "Импорт записей из XLSX-файла реестра"
 
 
 def register(hooks, app, config, core):
@@ -70,7 +70,7 @@ def register(hooks, app, config, core):
         'id': 'importXlsxModal', 'title': '📥 Импорт реестра из XLSX', 'width': 'normal',
         'html': '''
 <div style="font-size:0.85rem; color:var(--meta-color); line-height:1.5; margin-bottom:14px;">
-    <p>Файл заменит текущий реестр. Старый будет сохранён как <b>.bak</b>-копия.</p>
+    <p>Файл заменит текущий реестр. Старый реестр будет сохранён как <b>.bak</b>-копия.</p>
     <p>Обязательные колонки: <code>name_del</code>, <code>link_del</code>.</p>
 </div>
 <label class="data-btn" for="pluginXlsxFile" style="justify-content:center;">
@@ -94,10 +94,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const prog = document.getElementById('pluginXlsxProgress');
         if (prog) { prog.style.display = 'block'; prog.textContent = '⏳ Загрузка...'; }
         const fd = new FormData(); fd.append('file', file);
+        var _csrf = window.REESTR_CSRF || (document.querySelector('meta[name="csrf-token"]') || {getAttribute:function(){return ''}}).getAttribute('content') || '';
         fetch('/import/xlsx', {
             method: 'POST',
-            body: fd,
-            headers: window.reestrCsrfHeader()
+            body: fd
         })
             .then(r => r.json())
             .then(d => {
