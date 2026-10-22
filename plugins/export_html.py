@@ -3,8 +3,8 @@ from datetime import datetime
 from urllib.parse import quote
 from markupsafe import escape
 
-__version__ = "1.0"
-__description__ = "Экспорт в статический HTML-файл"
+__version__ = "1.1"
+__description__ = "Экспорт в статический HTML-файл (с поддержкой кода)"
 
 
 def _render(groups, category_colors, total, core):
@@ -28,6 +28,9 @@ h1{text-align:center;color:#f5d76e;}.sub{text-align:center;color:#7a9ab5;margin-
 .smart-link:hover{color:#f5d76e;text-decoration:underline;}
 .desc{font-size:.88rem;color:#9ab8d0;margin-top:6px;font-style:italic;}
 .tag{display:inline-block;background:rgba(245,215,110,.15);color:#f5d76e;padding:1px 8px;border-radius:10px;font-size:.7rem;margin-right:6px;margin-top:6px;}
+.link-code{margin-top:8px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;overflow:hidden;}
+.link-code .code-header{padding:3px 8px;background:rgba(0,0,0,0.25);font-size:0.7rem;color:#f5d76e;font-family:monospace;font-weight:700;letter-spacing:0.5px;}
+.link-code pre{margin:0;padding:8px 12px;background:rgba(0,0,0,0.3);font-family:'Consolas','Monaco','Courier New',monospace;font-size:0.78rem;line-height:1.4;overflow-x:auto;color:#e8edf3;white-space:pre;max-height:200px;}
 </style></head><body>''')
     p.append('<h1>📂 Реестр полезных ссылок</h1>')
     p.append(f'<div class="sub">экспортировано {datetime.now().strftime("%d.%m.%Y %H:%M")} · всего: {total}</div>')
@@ -44,6 +47,17 @@ h1{text-align:center;color:#f5d76e;}.sub{text-align:center;color:#7a9ab5;margin-
             p.append(f'<div class="link-item"><a class="smart-link" href="{href}" target="_blank" rel="noopener noreferrer">{link}</a>')
             if item['description']:
                 p.append(f'<div class="desc">{escape(item["description"])}</div>')
+
+            code_text = item.get('code', '') or ''
+            code_lang = item.get('code_lang', '') or 'plaintext'
+            if code_text.strip():
+                p.append(
+                    f'<div class="link-code">'
+                    f'<div class="code-header">{escape(code_lang.upper())}</div>'
+                    f'<pre>{escape(code_text)}</pre>'
+                    f'</div>'
+                )
+
             if item['category']:
                 cc = category_colors.get(item['category'], '')
                 style = f' style="background:{cc}33;color:{cc};"' if cc else ''
