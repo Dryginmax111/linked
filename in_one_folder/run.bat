@@ -57,7 +57,7 @@ if errorlevel 1 (
 )
 
 
-if not exist "%CORE%run_embedded.py" (
+if not exist "%CORE%/run_embedded.py" (
     echo [ERROR] core\run_embedded.py не найден
     pause
     exit /b 1
