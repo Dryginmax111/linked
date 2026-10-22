@@ -9,7 +9,6 @@ import shutil
 import uuid
 import inspect
 import sys
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -37,10 +36,23 @@ _LOAD_ERRORS = []
 _CONFIG_LOCK = threading.Lock()
 _THEMES_LOCK = threading.Lock()
 _RELOAD_LOCK = threading.Lock()
-_RELOAD_IN_PROGRESS = threading.Event()
+
+# Реестр view-функций плагинов: endpoint -> current_view_function.
+# Диспетчеры на реальном Flask читают отсюда. При reload мы просто
+# подменяем значения — Flask.url_map не трогаем.
+_PLUGIN_VIEWS = {}
+
+# Информация о зарегистрированных роутах: endpoint -> {'rule', 'methods'}
+_PLUGIN_ENDPOINT_INFO = {}
+
+# endpoint'ы, уже добавленные в Flask.url_map (dispatch-обёртки)
+_REGISTERED_ENDPOINTS = set()
+
+# Какие endpoint'ы принадлежат какому плагину: plugin_name -> [endpoints]
+_PLUGIN_NAME_ENDPOINTS = {}
 
 _PLUGIN_NAME_RE = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]{0,63}$')
-RESERVED_NAMES = {'__init__', 'app', 'plugins_loader', 'hot_reload'}
+RESERVED_NAMES = {'__init__', 'app', 'plugins_loader'}
 
 
 class PluginConfig:
@@ -60,7 +72,6 @@ class PluginConfig:
 
     def _save_all(self, data):
         try:
-            self.file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -152,30 +163,16 @@ def delete_plugin(plugins_dir, name):
                 shutil.move(str(bak), str(trash / bak.name))
             except Exception:
                 pass
-        _clear_pycache(plugins_dir, name)
+        pycache = plugins_dir / '__pycache__'
+        if pycache.exists():
+            for pc in pycache.glob(f'*{name}*'):
+                try:
+                    pc.unlink()
+                except Exception:
+                    pass
         return None
     except Exception as e:
         return f'Ошибка удаления: {e}'
-
-
-def _clear_pycache(plugins_dir, name=None):
-    """Удаляет .pyc-файлы для плагина (или все, если name=None)."""
-    try:
-        pycache = Path(plugins_dir) / '__pycache__'
-        if not pycache.exists():
-            return
-        if name:
-            # Точное совпадение: `<name>.cpython-312.pyc`, `<name>.cpython-312.opt-1.pyc` и т.п.
-            pattern = f'{name}.*.pyc'
-        else:
-            pattern = '*.pyc'
-        for pc in pycache.glob(pattern):
-            try:
-                pc.unlink()
-            except Exception:
-                pass
-    except Exception:
-        pass
 
 
 def set_enabled(config_file, name, enabled):
@@ -195,7 +192,6 @@ def set_enabled(config_file, name, enabled):
         data.setdefault(name, {})
         data[name]['enabled'] = bool(enabled)
         try:
-            cf.parent.mkdir(parents=True, exist_ok=True)
             cf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
         except Exception as e:
             return f'Ошибка сохранения: {e}'
@@ -215,16 +211,120 @@ def is_enabled(config_file, name):
         return True
 
 
+class PluginAppProxy:
+    """Прокси для Flask app, отдаваемый плагинам.
+
+    Плагин вызывает @app.route(...), но регистрация происходит не на
+    реальном Flask (это запрещено после первого запроса), а в локальный
+    буфер `self.routes`. После отработки `register()` мы сами решаем,
+    какие роуты добавить как диспетчеры, а какие — просто обновить.
+    """
+    def __init__(self, real_app, plugin_name):
+        self._app = real_app
+        self._plugin_name = plugin_name
+        self.routes = []
+
+    def route(self, rule, **options):
+        # Копируем, чтобы не менять исходный dict
+        opts = dict(options)
+        def decorator(fn):
+            ep = opts.pop('endpoint', None) or fn.__name__
+            methods = opts.pop('methods', None)
+            self.routes.append({
+                'rule': rule,
+                'endpoint': ep,
+                'view': fn,
+                'methods': methods,
+                'options': opts,
+            })
+            return fn
+        return decorator
+
+    def __getattr__(self, name):
+        # Делегируем всё остальное реальному Flask
+        return getattr(self._app, name)
+
+
+def _make_plugin_dispatcher(endpoint):
+    """Создаёт view-функцию для Flask, которая при каждом запросе
+    достаёт актуальный обработчик из _PLUGIN_VIEWS."""
+    def dispatcher(**kwargs):
+        view = _PLUGIN_VIEWS.get(endpoint)
+        if view is None:
+            return ('Plugin route not available', 503)
+        return view(**kwargs)
+    dispatcher.__name__ = f'plugin_dispatch_{endpoint}'
+    dispatcher.__qualname__ = dispatcher.__name__
+    return dispatcher
+
+
+def _register_plugin_routes(real_app, plugin_name, proxy):
+    """Регистрирует собранные proxy.routes на реальном Flask.
+    - Если endpoint уже зарегистрирован — обновляем _PLUGIN_VIEWS.
+    - Если новый — добавляем диспетчер в url_map.
+    Возвращает список endpoint'ов плагина."""
+    endpoints = []
+    for r in proxy.routes:
+        ep = r['endpoint']
+        view = r['view']
+        _PLUGIN_VIEWS[ep] = view
+        _PLUGIN_ENDPOINT_INFO[ep] = {
+            'rule': r['rule'],
+            'methods': r['methods'],
+        }
+        endpoints.append(ep)
+
+        if ep in _REGISTERED_ENDPOINTS:
+            # endpoint уже был — просто обновили view, ничего не трогаем
+            continue
+
+        try:
+            real_app.add_url_rule(
+                r['rule'],
+                endpoint=ep,
+                view_func=_make_plugin_dispatcher(ep),
+                methods=r['methods'],
+                **r['options']
+            )
+            _REGISTERED_ENDPOINTS.add(ep)
+        except AssertionError as e:
+            # Flask уже обработал первый запрос — новые роуты не добавить.
+            # Плагин загрузится, но его роуты не будут доступны до перезапуска.
+            print(f"[PLUGIN] ⚠️  Новый роут {r['rule']} ({ep}) не зарегистрирован: "
+                  f"требуется перезапуск сервера ({e})")
+            # Не считаем это фатальной ошибкой — view уже в _PLUGIN_VIEWS
+        except Exception as e:
+            print(f"[PLUGIN] ✗ Не удалось зарегистрировать роут {r['rule']} ({ep}): {e}")
+
+    _PLUGIN_NAME_ENDPOINTS[plugin_name] = endpoints
+    return endpoints
+
+
 def _call_register(register_fn, hooks, app, config, core):
+    """Вызывает register() плагина, поддерживая сигнатуры:
+        register(hooks, app, config)
+        register(hooks, app, config, core)
+    Любые лишние именованные аргументы отфильтровываются."""
     try:
         sig = inspect.signature(register_fn)
         params = sig.parameters
+        accepts_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD
+            for p in params.values()
+        )
         kwargs = {'hooks': hooks, 'app': app, 'config': config}
-        if 'core' in params:
+        if 'core' in params or accepts_kwargs:
             kwargs['core'] = core
-        register_fn(**kwargs)
-    except (TypeError, ValueError):
-        # Фолбэк для register(hooks, app, config)
+        if accepts_kwargs:
+            register_fn(**kwargs)
+        else:
+            allowed = {k: v for k, v in kwargs.items() if k in params}
+            if 'hooks' not in allowed:
+                # Совсем нестандартная сигнатура — пробуем позиционно
+                register_fn(hooks, app, config)
+            else:
+                register_fn(**allowed)
+    except ValueError:
         register_fn(hooks, app, config)
 
 
@@ -237,25 +337,7 @@ def reset_hooks():
         _HOOKS[name] = []
 
 
-def _purge_plugin_modules():
-    """Удаляет reestr_plugin_* из sys.modules."""
-    removed = 0
-    for n in list(sys.modules.keys()):
-        if n.startswith('reestr_plugin_'):
-            try:
-                del sys.modules[n]
-                removed += 1
-            except Exception:
-                pass
-    return removed
-
-
 def load_plugins(plugins_dir, app, config_file, core=None):
-    """Загружает (или перезагружает) все плагины из папки.
-
-    ВАЖНО: при повторном вызове — hooks полностью сбрасываются,
-    модули переимпортируются. Роуты Flask не удаляются (см. hot_reload.py).
-    """
     global _LOADED, _LOAD_ERRORS
     _LOADED = []
     _LOAD_ERRORS = []
@@ -283,7 +365,6 @@ def load_plugins(plugins_dir, app, config_file, core=None):
             continue
 
         try:
-            _clear_pycache(plugins_dir, plugin_name)
             spec = importlib.util.spec_from_file_location(f'reestr_plugin_{plugin_name}', str(f))
             if spec is None or spec.loader is None:
                 raise RuntimeError('Не удалось создать spec')
@@ -293,8 +374,11 @@ def load_plugins(plugins_dir, app, config_file, core=None):
             if not hasattr(mod, 'register'):
                 raise RuntimeError('Отсутствует register()')
 
+            # Запоминаем endpoint'ы до регистрации, чтобы потом вычислить новые
             config = PluginConfig(plugin_name, config_file)
-            _call_register(mod.register, _HOOKS, app, config, core)
+            proxy = PluginAppProxy(app, plugin_name)
+            _call_register(mod.register, _HOOKS, proxy, config, core)
+            _register_plugin_routes(app, plugin_name, proxy)
 
             version = str(getattr(mod, '__version__', '—'))
             _LOADED.append({
@@ -314,50 +398,56 @@ def load_plugins(plugins_dir, app, config_file, core=None):
 def reload_plugins(plugins_dir, app, config_file, core=None):
     """Горячая перезагрузка всех плагинов.
 
-    Порядок:
-    1. on_shutdown у загруженных
-    2. Очистка sys.modules + __pycache__
-    3. Заново загружаем
-    4. on_startup
-    5. on_plugins_reload
+    Роуты в Flask.url_map не трогаем — они уже зарегистрированы как
+    диспетчеры. Мы только обнуляем реестр view-функций и перезагружаем
+    модули. После reload диспетчеры подхватят свежие функции из
+    _PLUGIN_VIEWS.
 
     Возвращает (loaded, errors).
     """
-    if _RELOAD_IN_PROGRESS.is_set():
-        return _LOADED, _LOAD_ERRORS
-
     with _RELOAD_LOCK:
-        _RELOAD_IN_PROGRESS.set()
+        # 1. shutdown hook
         try:
-            # 1. shutdown
+            run_hook('on_shutdown')
+        except Exception as e:
+            print(f"[PLUGIN] on_shutdown при reload: {e}")
+
+        # 2. Обнуляем view-функции всех плагинов. Сами url_map правила
+        #    остаются — их диспетчеры возвращают 503, пока не придут
+        #    новые view из перезагруженных плагинов.
+        cleared = 0
+        for pname in list(_PLUGIN_NAME_ENDPOINTS.keys()):
+            for ep in _PLUGIN_NAME_ENDPOINTS[pname]:
+                if ep in _PLUGIN_VIEWS:
+                    del _PLUGIN_VIEWS[ep]
+                    cleared += 1
+        _PLUGIN_NAME_ENDPOINTS.clear()
+        print(f"[PLUGIN] Сброшено view-функций: {cleared}")
+
+        # 3. Чистим модули
+        names_to_remove = [n for n in list(sys.modules.keys()) if n.startswith('reestr_plugin_')]
+        for n in names_to_remove:
             try:
-                run_hook('on_shutdown')
-            except Exception as e:
-                print(f"[PLUGIN] on_shutdown при reload: {e}")
+                del sys.modules[n]
+            except Exception:
+                pass
 
-            # 2. чистим модули
-            removed = _purge_plugin_modules()
-            print(f"[PLUGIN] Очищено модулей: {removed}")
-            _clear_pycache(plugins_dir)
+        # 4. Перезагружаем
+        loaded, errors = load_plugins(plugins_dir, app, config_file, core=core)
 
-            # 3. reload
-            loaded, errors = load_plugins(plugins_dir, app, config_file, core=core)
+        # 5. startup hook
+        try:
+            run_hook('on_startup')
+        except Exception as e:
+            print(f"[PLUGIN] on_startup после reload: {e}")
 
-            # 4. startup
-            try:
-                run_hook('on_startup')
-            except Exception as e:
-                print(f"[PLUGIN] on_startup после reload: {e}")
+        # 6. Событие
+        try:
+            run_hook('on_plugins_reload', loaded=loaded, errors=errors)
+        except Exception as e:
+            print(f"[PLUGIN] on_plugins_reload: {e}")
 
-            # 5. событие
-            try:
-                run_hook('on_plugins_reload', loaded=loaded, errors=errors)
-            except Exception as e:
-                print(f"[PLUGIN] on_plugins_reload: {e}")
-
-            return loaded, errors
-        finally:
-            _RELOAD_IN_PROGRESS.clear()
+        return loaded, errors
 
 
 def _compute_status(name, enabled, loaded_names, error_names):
@@ -404,6 +494,8 @@ def get_plugins_info(plugins_dir, config_file):
 
 
 def run_hook(hook_name, **kwargs):
+    """Вызывает все функции хука. Устойчив к несовпадению аргументов:
+    если функция не принимает какие-то именованные параметры, они отфильтровываются."""
     if hook_name not in _HOOKS:
         return
     for fn in list(_HOOKS[hook_name]):
@@ -411,8 +503,33 @@ def run_hook(hook_name, **kwargs):
             continue
         try:
             fn(**kwargs)
+        except TypeError as e:
+            # Пытаемся отфильтровать неподходящие kwargs
+            msg = str(e)
+            if 'unexpected keyword argument' in msg:
+                try:
+                    sig = inspect.signature(fn)
+                    accepts_kwargs = any(
+                        p.kind == inspect.Parameter.VAR_KEYWORD
+                        for p in sig.parameters.values()
+                    )
+                    if accepts_kwargs:
+                        # Функция принимает **kwargs, но всё равно ошибка — не фильтруем
+                        raise
+                    allowed = set()
+                    for pname, p in sig.parameters.items():
+                        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                                      inspect.Parameter.KEYWORD_ONLY):
+                            allowed.add(pname)
+                    filtered = {k: v for k, v in kwargs.items() if k in allowed}
+                    fn(**filtered)
+                    continue
+                except Exception as e2:
+                    print(f"[PLUGIN] Ошибка в хуке {hook_name} ({fn.__name__}): {e2}")
+                    continue
+            print(f"[PLUGIN] Ошибка в хуке {hook_name} ({getattr(fn, '__name__', '?')}): {e}")
         except Exception as e:
-            print(f"[PLUGIN] Ошибка в хуке {hook_name}: {e}")
+            print(f"[PLUGIN] Ошибка в хуке {hook_name} ({getattr(fn, '__name__', '?')}): {e}")
 
 
 def _collect_slot(slot_name):
@@ -423,10 +540,85 @@ def _collect_slot(slot_name):
     return out
 
 
+# Допустимые группы для вкладки «Инструменты и данные»
+_UI_GROUPS = ('tools', 'import', 'export')
+_IMPORT_HINTS = ('import', 'импорт', 'upload', 'загруз')
+_EXPORT_HINTS = ('export', 'экспорт', 'download', 'скач', 'выгруз')
+
+
+def _guess_group(item, default='tools'):
+    """Определяет группу для UI-слота.
+
+    Приоритет:
+      1) Явное поле `group` (если валидное) — используется как есть.
+      2) Эвристика по action / label / url / modal_id.
+      3) `default`.
+
+    Это временная мера — пока плагины не проставляют `group` явно.
+    """
+    g = str(item.get('group', '') or '').strip().lower()
+    if g in _UI_GROUPS:
+        return g
+
+    action = str(item.get('action', '') or '').lower()
+    label = str(item.get('label', '') or '').lower()
+    url = str(item.get('url', '') or '').lower()
+    modal_id = str(item.get('modal_id', '') or '').lower()
+    haystack = ' '.join((action, label, url, modal_id))
+
+    for h in _IMPORT_HINTS:
+        if h in haystack:
+            return 'import'
+    for h in _EXPORT_HINTS:
+        if h in haystack:
+            return 'export'
+    return default
+
+
+def _normalize_slot_item(item, default_group='tools'):
+    """Приводит элемент слота к единому виду."""
+    if not isinstance(item, dict):
+        return None
+    out = dict(item)
+    out['group'] = _guess_group(out, default_group)
+    try:
+        out['order'] = int(out.get('order', 100))
+    except (ValueError, TypeError):
+        out['order'] = 100
+    return out
+
+
+def _collect_slot(slot_name, default_group='tools'):
+    out = []
+    for item in _HOOKS.get(slot_name, []):
+        norm = _normalize_slot_item(item, default_group)
+        if norm is not None:
+            out.append(norm)
+    # стабильная сортировка: сначала order, потом label
+    out.sort(key=lambda x: (x.get('order', 100), str(x.get('label', ''))))
+    return out
+
+
 def collect_ui_slots():
+    tools = _collect_slot('ui_tools_tab', 'tools')
+    data = _collect_slot('ui_data_tab', 'tools')  # legacy-слот — по умолчанию tools
+    # Объединяем оба legacy-слота в один пул и группируем
+    merged = tools + data
+    grouped = {'tools': [], 'import': [], 'export': []}
+    for it in merged:
+        g = it.get('group', 'tools')
+        if g not in grouped:
+            g = 'tools'
+        grouped[g].append(it)
+    for g in grouped:
+        grouped[g].sort(key=lambda x: (x.get('order', 100), str(x.get('label', ''))))
+
     return {
-        'data_tab': _collect_slot('ui_data_tab'),
-        'tools_tab': _collect_slot('ui_tools_tab'),
+        'data_tab': grouped['tools'] + grouped['import'] + grouped['export'],  # legacy-совместимость
+        'tools_tab': grouped['tools'],
+        'import_tab': grouped['import'],
+        'export_tab': grouped['export'],
+        'tools_grouped': grouped,
         'appearance_tab': _collect_slot('ui_appearance_tab'),
         'sidebar': _collect_slot('ui_sidebar'),
         'topbar': _collect_slot('ui_topbar'),
@@ -452,24 +644,8 @@ _BUILTIN_THEME_IDS = {
     'dracula', 'gruvbox',
 }
 _CUSTOM_THEME_ID_RE = re.compile(r'^[a-z][a-z0-9_]{0,31}$')
-_FORBIDDEN_CSS_PATTERNS = (
-    re.compile(r'url\s*\(', re.IGNORECASE),
-    re.compile(r'expression\s*\(', re.IGNORECASE),
-    re.compile(r'@import', re.IGNORECASE),
-    re.compile(r'</\s*style', re.IGNORECASE),
-    re.compile(r'javascript\s*:', re.IGNORECASE),
-    re.compile(r'behavior\s*:', re.IGNORECASE),
-    re.compile(r'-moz-binding\s*:', re.IGNORECASE),
-)
+_FORBIDDEN_CSS_TOKENS = ('url(', 'expression(', '@import', '</style', 'javascript:')
 
-
-def _contains_forbidden_css(text):
-    if not text:
-        return None
-    for pat in _FORBIDDEN_CSS_PATTERNS:
-        if pat.search(text):
-            return pat.pattern
-    return None
 
 def load_custom_themes(file_path):
     if not Path(file_path).exists():
@@ -499,26 +675,63 @@ def _validate_theme(theme):
     dot = theme.get('dot', '')
     if dot and (not isinstance(dot, str) or len(dot) > 500):
         return 'Поле dot: строка до 500 символов'
+    # dot тоже может содержать запрещённое
     if isinstance(dot, str):
-        bad = _contains_forbidden_css(dot)
-        if bad:
-            return f'Запрещённое содержимое в dot: {bad}'
+        low = dot.lower()
+        for bad in _FORBIDDEN_CSS_TOKENS:
+            if bad in low:
+                return f'Запрещённое содержимое в dot: {bad}'
     vars_ = theme.get('vars', {})
     if not isinstance(vars_, dict):
         return 'vars должен быть объектом'
+
+    # Авто-разворачивание: если пользователь вставил {"gaming": { "--bg-start": ... }}
+    # или {"name": "...", "vars": {...}}, пробуем распаковать.
+    def _looks_like_var_block(d):
+        if not isinstance(d, dict) or not d:
+            return False
+        for k in d.keys():
+            if isinstance(k, str) and k.startswith('--'):
+                return True
+        return False
+
+    if not _looks_like_var_block(vars_):
+        # Верхний уровень — не переменные. Пробуем распаковать.
+        for _v in vars_.values():
+            if _looks_like_var_block(_v):
+                vars_ = _v
+                break
+        else:
+            # Возможно это структура вида {"name": ..., "dot": ..., "vars": {...}}
+            inner = vars_.get('vars')
+            if _looks_like_var_block(inner):
+                vars_ = inner
+    if not isinstance(vars_, dict) or not _looks_like_var_block(vars_):
+        return ('Не найдено ни одной CSS-переменной. Вставь плоский объект вида '
+                '{"--bg-start": "#151a2e", "--text-color": "#ffffff"}.')
+    # пересохраняем развёрнутые vars обратно в тему
+    theme['vars'] = vars_
+
     if len(vars_) > 200:
         return 'Слишком много переменных (макс. 200)'
     for k, v in vars_.items():
-        if not isinstance(k, str) or not k.startswith('--') or len(k) > 64:
-            return f'Имя переменной некорректно: {k}'
+        if not isinstance(k, str):
+            return f'Ключ переменной должен быть строкой, получено: {type(k).__name__}'
+        if len(k) > 64:
+            return f'Имя переменной слишком длинное (макс. 64): {k[:40]}…'
+        if not k.startswith('--'):
+            return (f'Ключ «{k}» должен начинаться с двух дефисов, например «--bg-start». '
+                    f'Если ты вставил объект целиком — убери внешнюю обёртку и оставь '
+                    f'только плоский список переменных.')
         if not isinstance(v, (str, int, float)):
             return f'Значение {k} должно быть строкой/числом'
         sv = str(v)
         if len(sv) > 500:
             return f'Значение {k} слишком длинное'
-        bad = _contains_forbidden_css(sv)
-        if bad:
-            return f'Запрещённое содержимое в {k}: {bad}'
+        low = sv.lower()
+        for bad in _FORBIDDEN_CSS_TOKENS:
+            if bad in low:
+                return f'Запрещённое содержимое в {k}: {bad}'
     return None
 
 
@@ -555,3 +768,4 @@ def get_custom_themes(file_path):
     return [{'id': tid, 'name': theme.get('name', tid),
              'dot': theme.get('dot', ''), 'vars': theme.get('vars', {})}
             for tid, theme in data.items()]
+
