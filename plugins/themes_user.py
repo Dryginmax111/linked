@@ -280,9 +280,14 @@ def register(hooks, app, config, core):
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var themes = (data && data.themes) || [];
-                // injectCustomThemes(themes);  // ← отключено: темы теперь рендерятся в HTML
+                injectCustomThemes(themes);
                 renderCustomThemes(themes);
                 updateThemeSelector(themes);
+                // Повторно применить активную тему, чтобы подсветилась иконка
+                try {
+                    var cur = localStorage.getItem('reestr_theme') || 'dark';
+                    if (typeof applyTheme === 'function') applyTheme(cur);
+                } catch (e) {}
             })
             .catch(function() {});
     }
@@ -314,7 +319,7 @@ def register(hooks, app, config, core):
     function deleteTheme(id) {
         if (typeof showConfirm !== 'function') {
             if (!confirm('Удалить тему ' + id + '?')) return;
-            fetch('/api/custom_themes/delete', {
+            csrfFetch('/api/custom_themes/delete', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({id: id})
@@ -325,7 +330,7 @@ def register(hooks, app, config, core):
             'Удалить тему <span class="confirm-highlight">' + escHtml(id) + '</span>?',
             '🗑 Удалить',
             function() {
-                fetch('/api/custom_themes/delete', {
+                csrfFetch('/api/custom_themes/delete', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({id: id})
@@ -373,14 +378,13 @@ def register(hooks, app, config, core):
                     if (stEl) { stEl.textContent = '❌ ID: строчная латиница, цифры, _, до 32 символов'; stEl.style.color = '#e74c3c'; }
                     return;
                 }
-                fetch('/api/custom_themes/save', {
+                csrfFetch('/api/custom_themes/save', {
                     method: 'POST',
-                    headers: Object.assign(
-                        {'Content-Type': 'application/json'},
-                        (window.reestrCsrfHeader && window.reestrCsrfHeader()) || {}
-                    ),
-                    body: JSON.stringify({ ... })
-                })
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        id: id || 'custom_' + Date.now().toString(36),
+                        theme: { name: name, dot: dot, vars: vars }
+                    })
                 }).then(function(r) { return r.json(); }).then(function(res) {
                     if (res.success) {
                         if (typeof showNotification === 'function')
@@ -400,3 +404,4 @@ def register(hooks, app, config, core):
     });
 })();
 </script>'''})
+
