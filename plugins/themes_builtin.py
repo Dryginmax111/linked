@@ -1,11 +1,13 @@
 """Метаданные встроенных тем."""
 __version__ = "1.0"
-__description__ = "Список встроенных тем"
+__description__ = "Регистрирует список встроенных тем"
 
 
 def register(hooks, app, config, core):
-    hooks['ui_themes'].append({'id': 'dark', 'name': 'Тёмная', 'builtin': True,
-        'dot': 'linear-gradient(135deg, #0b1a2e, #2a4b6e)'})
+    hooks['ui_themes'].append({
+        'id': 'dark', 'name': 'Тёмная', 'builtin': True,
+        'dot': 'linear-gradient(135deg, #0b1a2e, #2a4b6e)',
+    })
     hooks['ui_themes'].append({'id': 'light', 'name': 'Светлая', 'builtin': True,
         'dot': 'linear-gradient(135deg, #eef2f7, #bcc8d9)'})
     hooks['ui_themes'].append({'id': 'black', 'name': 'Чёрная', 'builtin': True,
