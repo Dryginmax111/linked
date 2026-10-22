@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 
 __version__ = "1.0"
-__description__ = "Статистика: топ, активность, тепловая карта"
+__description__ = "Статистика: топ ссылок, активность, тепловая карта"
 
 
 def register(hooks, app, config, core):
