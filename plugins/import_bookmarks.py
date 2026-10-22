@@ -2,7 +2,7 @@
 from html.parser import HTMLParser
 
 __version__ = "1.0"
-__description__ = "Импорт закладок из браузера"
+__description__ = "Импорт закладок из браузера (Chrome/Firefox/Safari HTML)"
 
 
 class BookmarkParser(HTMLParser):
@@ -94,10 +94,8 @@ def register(hooks, app, config, core):
     })
 
     hooks['ui_modals'].append({
-        'id': 'importBookmarksModal',
-        'title': '🌐 Импорт закладок из браузера',
-        'width': 'normal',
-        'html': '''
+        'id': 'importBookmarksModal', 'title': '🌐 Импорт закладок из браузера',
+        'width': 'normal', 'html': '''
 <div style="font-size:0.85rem; color:var(--meta-color); line-height:1.5; margin-bottom:14px;">
     <p><b>Chrome / Edge:</b> Меню → Закладки → Диспетчер закладок → ⋮ → Экспорт</p>
     <p><b>Firefox:</b> Меню → Закладки → Управление → Импорт и резервные копии → Экспорт в HTML</p>
@@ -123,12 +121,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const prog = document.getElementById('pluginImportBookmarksProgress');
         if (prog) { prog.style.display = 'block'; prog.textContent = '⏳ Загрузка...'; }
         const fd = new FormData(); fd.append('file', file);
+        var _csrf = window.REESTR_CSRF || (document.querySelector('meta[name="csrf-token"]') || {getAttribute:function(){return ''}}).getAttribute('content') || '';
         fetch('/import/bookmarks', {
             method: 'POST',
-            body: fd,
-            headers: window.reestrCsrfHeader()
+            body: fd
         })
-        .then(r => r.json())
+            .then(r => r.json())
             .then(d => {
                 if (d.success) {
                     if (prog) prog.textContent = '✅ Добавлено: ' + d.added + ' из ' + d.total;
