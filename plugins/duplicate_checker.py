@@ -2,7 +2,6 @@
 __version__ = "1.0"
 __description__ = "Проверка дубликатов URL"
 
-
 def register(hooks, app, config, core):
     from flask import jsonify, request
 
