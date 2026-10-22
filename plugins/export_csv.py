@@ -5,13 +5,14 @@ from datetime import datetime
 from urllib.parse import quote
 
 __version__ = "1.0"
-__description__ = "Экспорт в CSV"
+__description__ = "Экспорт в CSV (совместим с Excel)"
 
 
 def register(hooks, app, config, core):
     @app.route('/export/csv')
     def export_csv():
-        wb = core.read_workbook(); ws = wb.active
+        wb = core.read_workbook()
+        ws = wb.active
         output = io.StringIO()
         writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
         writer.writerow(['id', 'name_del', 'link_del', 'description', 'category',
@@ -28,5 +29,6 @@ def register(hooks, app, config, core):
 
     hooks['ui_data_tab'].append({
         'id': 'export_csv_btn', 'icon': '📊',
-        'label': 'Экспорт в CSV', 'action': 'download', 'url': '/export/csv',
+        'label': 'Экспорт в CSV',
+        'action': 'download', 'url': '/export/csv',
     })
