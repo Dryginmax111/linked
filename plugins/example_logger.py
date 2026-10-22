@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-__version__ = "2.0"
+__version__ = "2.1"
 __description__ = "Подробный лог всех событий реестра (log + jsonl)"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -55,20 +55,32 @@ def _short(text, limit=80):
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
 
-def on_startup():
+def on_startup(**kwargs):
     _log('STARTUP', 'Реестр запущен', data={'version': __version__})
 
 
-def on_add(record_id, name, link, description, category, tags):
-    _log('ADD', f'#{record_id} «{_short(name, 40)}» → {_short(link, 60)}', data={
+def on_shutdown(**kwargs):
+    _log('SHUTDOWN', 'Реестр остановлен')
+
+
+def on_add(record_id, name, link, description='', category='', tags='',
+           code=None, code_lang=None, **kwargs):
+    has_code = bool(code and str(code).strip())
+    data = {
         'id': record_id, 'name': name, 'link': link,
         'category': category or '', 'tags': tags or '',
         'desc_preview': _short(description, 120),
         'link_len': len(link) if link else 0,
-    })
+    }
+    if has_code:
+        data['code_len'] = len(str(code))
+        data['code_lang'] = code_lang or ''
+    suffix = ' [+code]' if has_code else ''
+    _log('ADD', f'#{record_id} «{_short(name, 40)}» → {_short(link, 60)}{suffix}', data=data)
 
 
-def on_edit(record_id, name, link, description, category, favorite, tags, changes):
+def on_edit(record_id, name, link, description='', category='', favorite=0,
+            tags='', changes=None, code=None, code_lang=None, **kwargs):
     if changes:
         summary = ', '.join(changes.keys()); level = 'INFO'
     else:
@@ -77,64 +89,68 @@ def on_edit(record_id, name, link, description, category, favorite, tags, change
     for field, diff in (changes or {}).items():
         details[f'{field}_from'] = _short(str(diff.get('from', '')), 80)
         details[f'{field}_to'] = _short(str(diff.get('to', '')), 80)
+    if code is not None:
+        details['code_len'] = len(str(code)) if code else 0
+        details['code_lang'] = code_lang or ''
     _log('EDIT', f'#{record_id} «{_short(name, 40)}» — {summary}', level=level, data=details)
 
 
-def on_delete(record_id, name, link, category):
+def on_delete(record_id, name, link='', category='', **kwargs):
     _log('DELETE', f'#{record_id} «{_short(name, 40)}» (в корзину)', level='WARN', data={
         'id': record_id, 'name': name, 'link': link, 'category': category or '',
     })
 
 
-def on_hard_delete(record_id, name):
+def on_hard_delete(record_id, name='', **kwargs):
     _log('HARD-DELETE', f'#{record_id} «{_short(name, 40)}» — безвозвратно', level='WARN', data={
         'id': record_id, 'name': name,
     })
 
 
-def on_restore(record_id, name):
+def on_restore(record_id, name='', **kwargs):
     _log('RESTORE', f'#{record_id} «{_short(name, 40)}»', data={'id': record_id, 'name': name})
 
 
-def on_move_to_group(record_id, from_group, to_group):
+def on_move_to_group(record_id, from_group='', to_group='', **kwargs):
     _log('MOVE', f'#{record_id}: «{_short(from_group, 30)}» → «{_short(to_group, 30)}»', data={
         'id': record_id, 'from': from_group, 'to': to_group,
     })
 
 
-def on_category_change(record_id, name, old_category, new_category):
+def on_category_change(record_id, name='', old_category='', new_category='', **kwargs):
     _log('CAT-CHANGE', f'#{record_id} «{_short(name, 40)}»: {old_category or "—"} → {new_category or "—"}', data={
         'id': record_id, 'name': name, 'old': old_category or '', 'new': new_category or '',
     })
 
 
-def on_click(record_id, name, link, click_count):
+def on_click(record_id, name='', link='', click_count=0, **kwargs):
     _log('CLICK', f'#{record_id} «{_short(name, 40)}» — всего: {click_count}', data={
         'id': record_id, 'name': name, 'link': link, 'count': click_count,
     })
 
 
-def on_import(source, added, extra):
+def on_import(source='', added=0, extra=None, **kwargs):
     _log('IMPORT', f'источник={source} добавлено={added}', data={
         'source': source, 'added': added, 'extra': extra or {},
     })
 
 
-def on_bulk_delete(count, ids):
-    _log('BULK-DELETE', f'{count} записей', level='WARN', data={'count': count, 'ids': list(ids)[:100]})
+def on_bulk_delete(count=0, ids=None, **kwargs):
+    _log('BULK-DELETE', f'{count} записей', level='WARN',
+         data={'count': count, 'ids': list(ids or [])[:100]})
 
 
-def on_bulk_move(count, category, ids):
+def on_bulk_move(count=0, category='', ids=None, **kwargs):
     _log('BULK-MOVE', f'{count} записей → «{_short(category, 40)}»', data={
-        'count': count, 'category': category, 'ids': list(ids)[:100],
+        'count': count, 'category': category, 'ids': list(ids or [])[:100],
     })
 
 
-def on_status_check_start():
+def on_status_check_start(**kwargs):
     _log('STATUS-CHECK', 'проверка ссылок запущена')
 
 
-def on_status_check_end(results):
+def on_status_check_end(results=None, **kwargs):
     total = len(results) if results else 0
     by_status = {}
     for st in (results or {}).values():
@@ -144,26 +160,32 @@ def on_status_check_end(results):
          data={'total': total, 'by_status': by_status})
 
 
-def on_category_rename(old_name, new_name, count):
+def on_category_rename(old_name='', new_name='', count=0, **kwargs):
     _log('CAT-RENAME', f'«{old_name}» → «{new_name}» ({count} записей)', data={
         'old': old_name, 'new': new_name, 'count': count,
     })
 
 
-def on_category_delete(category, count):
+def on_category_delete(category='', count=0, **kwargs):
     _log('CAT-DELETE', f'«{category}» ({count} записей)', level='WARN', data={
         'category': category, 'count': count,
     })
 
 
-def on_group_rename(old_name, new_name, count):
+def on_group_rename(old_name='', new_name='', count=0, **kwargs):
     _log('GROUP-RENAME', f'«{old_name}» → «{new_name}» ({count} записей)', data={
         'old': old_name, 'new': new_name, 'count': count,
     })
 
 
+def on_plugins_reload(loaded=None, errors=None, **kwargs):
+    _log('PLUGINS-RELOAD', f'загружено {len(loaded or [])}, ошибок {len(errors or [])}',
+         data={'loaded': len(loaded or []), 'errors': len(errors or [])})
+
+
 def register(hooks, app, config, core=None):
     hooks['on_startup'].append(on_startup)
+    hooks['on_shutdown'].append(on_shutdown)
     hooks['on_add'].append(on_add)
     hooks['on_edit'].append(on_edit)
     hooks['on_delete'].append(on_delete)
@@ -180,6 +202,7 @@ def register(hooks, app, config, core=None):
     hooks['on_category_rename'].append(on_category_rename)
     hooks['on_category_delete'].append(on_category_delete)
     hooks['on_group_rename'].append(on_group_rename)
+    hooks['on_plugins_reload'].append(on_plugins_reload)
 
     @app.route('/my-plugin/log-tail')
     def log_tail():
