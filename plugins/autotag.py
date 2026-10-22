@@ -139,7 +139,7 @@ def register(hooks, app, config, core):
 
     # -------- UI --------
 
-    hooks['ui_tools_tab'].append({
+    hooks['ui_data_tab'].append({
         'id': 'autotag_rules_btn', 'icon': '🏷️',
         'label': 'Правила авто-тегов', 'action': 'js',
         'js': 'window.__autotagOpenEditor && window.__autotagOpenEditor()',
@@ -176,10 +176,6 @@ def register(hooks, app, config, core):
 (function() {
     var _rules = {};
 
-    function getCsrf() {
-        var m = document.querySelector('meta[name="csrf-token"]');
-        return m ? m.getAttribute('content') : '';
-    }
     function esc(s) {
         return String(s || '').replace(/[&<>"']/g, function(c) {
             return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -248,11 +244,7 @@ def register(hooks, app, config, core):
         var resetBtn = document.getElementById('autotagResetRulesBtn');
         if (resetBtn) resetBtn.addEventListener('click', function() {
             if (!confirm('Сбросить правила к стандартным?')) return;
-            fetch('/api/autotag/reset', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf()},
-                body: '{}'
-            }).then(function(r) { return r.json(); }).then(function(d) {
+            fetch('/api/autotag/reset', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' }).then(function(r) { return r.json(); }).then(function(d) {
                 _rules = Object.assign({}, d.rules || {});
                 renderRules();
             });
@@ -261,7 +253,7 @@ def register(hooks, app, config, core):
         if (saveBtn) saveBtn.addEventListener('click', function() {
             fetch('/api/autotag/save', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf()},
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({rules: _rules})
             }).then(function(r) { return r.json(); }).then(function(d) {
                 if (d.success) {
@@ -382,3 +374,4 @@ def register(hooks, app, config, core):
     });
 })();
 </script>'''})
+
