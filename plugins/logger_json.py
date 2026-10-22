@@ -826,6 +826,8 @@ def register(hooks, app, config, core):
     document.addEventListener('DOMContentLoaded', function() {
         renderActionsList();
 
+        var btn = $('show_logs_btn') || document.querySelector('[data-plugin-js*="__logsOpen"]');
+        if (btn) btn.addEventListener('click', function() { window.__logsOpen(); });
 
         var applyBtn = $('logsApplyFiltersBtn');
         if (applyBtn) applyBtn.addEventListener('click', function() {
@@ -911,10 +913,7 @@ def register(hooks, app, config, core):
             }
             fetch('/clear_logs', {
                 method: 'POST',
-                headers: Object.assign(
-                    {'Content-Type': 'application/json'},
-                    (window.reestrCsrfHeader && window.reestrCsrfHeader()) || {}
-                ),
+                headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({confirm: 'YES_CLEAR_LOGS'})
             })
             .then(function(r) { return r.json(); })
@@ -1120,3 +1119,4 @@ def register(hooks, app, config, core):
     .logs-diff-arrow { display:none; }
 }
 </style>'''})
+
