@@ -94,10 +94,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (prog) { prog.style.display = 'block'; prog.textContent = '⏳ Загрузка...'; }
         const fd = new FormData(); fd.append('file', file);
         fd.append('default_category', cat); fd.append('use_folders', 'false');
+        var _csrf = window.REESTR_CSRF || (document.querySelector('meta[name="csrf-token"]') || {getAttribute:function(){return ''}}).getAttribute('content') || '';
         fetch('/import/pocket', {
             method: 'POST',
-            body: fd,
-            headers: window.reestrCsrfHeader()
+            body: fd
         })
             .then(r => r.json())
             .then(d => {
