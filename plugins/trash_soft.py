@@ -1,4 +1,12 @@
-"""Корзина: мягкое удаление, восстановление, автоочистка."""
+"""
+Корзина: мягкое удаление, восстановление, автоочистка.
+
+UI:
+  - Кнопка «Корзина» в сайдбаре (со счётчиком)
+  - Модалка со списком удалённых
+  - Кнопки «Восстановить» и «Удалить навсегда»
+  - Автоочистка записей старше 30 дней
+"""
 from datetime import datetime, timedelta
 
 __version__ = "2.0"
@@ -12,6 +20,10 @@ PURGE_INTERVAL = 3600
 def register(hooks, app, config, core):
     from flask import jsonify
 
+    # ============================================================
+    # API
+    # ============================================================
+
     @app.route('/get_trash')
     def get_trash():
         wb = core.read_workbook(); ws = wb.active
@@ -21,9 +33,12 @@ def register(hooks, app, config, core):
             if not d:
                 continue
             trash.append({
-                'id': row[0], 'name': core.safe_str(row[1]),
-                'link': core.safe_str(row[2]), 'category': core.safe_str(row[4]),
-                'deleted_at': core.format_datetime(d), 'deleted_at_iso': d
+                'id': row[0],
+                'name': core.safe_str(row[1]),
+                'link': core.safe_str(row[2]),
+                'category': core.safe_str(row[4]),
+                'deleted_at': core.format_datetime(d),
+                'deleted_at_iso': d
             })
         trash.sort(key=lambda x: x['deleted_at_iso'], reverse=True)
         return jsonify(trash)
@@ -86,14 +101,24 @@ def register(hooks, app, config, core):
             core.log_action('trash_auto_purge', None, '', {'count': len(to_delete)})
         return jsonify({'success': True, 'count': len(to_delete)})
 
+    # ============================================================
+    # UI: кнопка в сайдбаре
+    # ============================================================
     hooks['ui_sidebar'].append({
-        'id': 'showTrashBtn', 'icon': '🗑',
-        'label': 'Корзина', 'action': 'openModal',
+        'id': 'showTrashBtn',
+        'icon': '🗑',
+        'label': 'Корзина',
+        'action': 'openModal',
         'modal_id': 'pluginTrashModal',
     })
 
+    # ============================================================
+    # UI: модалка корзины
+    # ============================================================
     hooks['ui_modals'].append({
-        'id': 'pluginTrashModal', 'title': '🗑 Корзина', 'width': 'wide',
+        'id': 'pluginTrashModal',
+        'title': '🗑 Корзина',
+        'width': 'wide',
         'html': '''
 <p style="color:var(--meta-color); font-size:0.85rem; margin-bottom:12px;">
     Удалённые записи хранятся 30 дней. После этого они удаляются навсегда.
@@ -108,6 +133,9 @@ def register(hooks, app, config, core):
 '''
     })
 
+    # ============================================================
+    # UI: скрипт
+    # ============================================================
     hooks['ui_scripts'].append({'html': '''<script>
 (function() {
     function escHtml(s) {
@@ -116,6 +144,7 @@ def register(hooks, app, config, core):
         });
     }
 
+    /* Загрузка и отрисовка списка корзины */
     function loadTrashList() {
         const list = document.getElementById('pluginTrashList');
         if (!list) return;
@@ -139,13 +168,15 @@ def register(hooks, app, config, core):
                         + '<div class="trash-item-actions">'
                         +   '<button type="button" class="restore-btn" data-id="' + it.id + '">↩ Восстановить</button>'
                         +   '<button type="button" class="purge-btn" data-id="' + it.id + '">✖ Удалить навсегда</button>'
-                        + '</div></div>';
+                        + '</div>'
+                        + '</div>';
                 });
                 list.innerHTML = html;
+
                 list.querySelectorAll('.restore-btn').forEach(function(b) {
                     b.addEventListener('click', function() {
                         const id = this.getAttribute('data-id');
-                        window.reestrFetch('/restore_from_trash/' + id, { method: 'POST' })
+                        fetch('/restore_from_trash/' + id, { method: 'POST' })
                             .then(function(r) { return r.json(); })
                             .then(function(d) {
                                 if (d.success) {
@@ -153,8 +184,10 @@ def register(hooks, app, config, core):
                                         showNotification('✅ Восстановлено', 'success');
                                     loadTrashList();
                                     setTimeout(function() { location.reload(); }, 700);
-                                } else if (typeof showNotification === 'function')
-                                    showNotification('❌ ' + (d.error || 'Ошибка'), 'error');
+                                } else {
+                                    if (typeof showNotification === 'function')
+                                        showNotification('❌ ' + (d.error || 'Ошибка'), 'error');
+                                }
                             })
                             .catch(function() {
                                 if (typeof showNotification === 'function')
@@ -162,18 +195,22 @@ def register(hooks, app, config, core):
                             });
                     });
                 });
+
                 list.querySelectorAll('.purge-btn').forEach(function(b) {
                     b.addEventListener('click', function() {
                         const id = this.getAttribute('data-id');
                         if (typeof showConfirm !== 'function') {
                             if (!confirm('Удалить навсегда?')) return;
-                            window.reestrFetch('/empty_record/' + id, { method: 'POST' }).then(function() { loadTrashList(); });
+                            fetch('/empty_record/' + id, { method: 'POST' }).then(function() {
+                                loadTrashList();
+                            });
                             return;
                         }
                         showConfirm('🗑 Удалить навсегда',
-                            'Запись будет удалена безвозвратно.', 'Удалить',
+                            'Запись будет удалена безвозвратно.',
+                            'Удалить',
                             function() {
-                                window.reestrFetch('/empty_record/' + id, { method: 'POST' })
+                                fetch('/empty_record/' + id, { method: 'POST' })
                                     .then(function() {
                                         if (typeof showNotification === 'function')
                                             showNotification('✅ Удалено', 'success');
@@ -182,6 +219,7 @@ def register(hooks, app, config, core):
                             });
                     });
                 });
+
                 updateTrashBadgeCount(items.length);
             })
             .catch(function() {
@@ -189,20 +227,22 @@ def register(hooks, app, config, core):
             });
     }
 
+    /* Очистить всё */
     document.addEventListener('DOMContentLoaded', function() {
         const purgeBtn = document.getElementById('pluginPurgeTrashBtn');
         if (purgeBtn) {
             purgeBtn.addEventListener('click', function() {
                 if (typeof showConfirm !== 'function') {
-                    if (!confirm('Очистить корзину?')) return;
-                    window.reestrFetch('/purge_trash', { method: 'POST' }).then(function(r) { return r.json(); })
+                    if (!confirm('Очистить корзину? Все записи будут удалены навсегда.')) return;
+                    fetch('/purge_trash', { method: 'POST' }).then(function(r) { return r.json(); })
                         .then(function() { loadTrashList(); });
                     return;
                 }
                 showConfirm('🗑 Очистить корзину',
-                    'Все записи из корзины будут удалены навсегда.', 'Очистить',
+                    'Все записи из корзины будут удалены навсегда.',
+                    'Очистить',
                     function() {
-                        window.reestrFetch('/purge_trash', { method: 'POST' })
+                        fetch('/purge_trash', { method: 'POST' })
                             .then(function(r) { return r.json(); })
                             .then(function(d) {
                                 if (typeof showNotification === 'function')
@@ -213,21 +253,31 @@ def register(hooks, app, config, core):
             });
         }
 
+        /* Открытие модалки — подгружаем список */
         const trashBtn = document.querySelector('[data-plugin-modal="pluginTrashModal"]');
-        if (trashBtn) trashBtn.addEventListener('click', function() { setTimeout(loadTrashList, 30); });
+        if (trashBtn) {
+            trashBtn.addEventListener('click', function() {
+                setTimeout(loadTrashList, 30);
+            });
+        }
 
+        /* Инициализация бейджа при загрузке страницы */
         updateTrashBadgeCount(null);
 
+        /* Обновляем бейдж после удаления (клик по кнопке удаления на ссылке) */
         document.body.addEventListener('click', function(e) {
-            if (e.target.closest('.delete-btn')) {
+            const delBtn = e.target.closest('.delete-btn');
+            if (delBtn) {
                 setTimeout(function() { updateTrashBadgeCount(null); }, 800);
                 return;
             }
-            if (e.target.closest('#undoToastBtn')) {
+            const undoBtn = e.target.closest('#undoToastBtn');
+            if (undoBtn) {
                 setTimeout(function() { updateTrashBadgeCount(null); }, 500);
             }
         }, true);
 
+        /* Ctrl+Z — отмена удаления — обновит бейдж через 500 мс */
         document.addEventListener('keydown', function(e) {
             if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
                 setTimeout(function() { updateTrashBadgeCount(null); }, 700);
@@ -235,6 +285,7 @@ def register(hooks, app, config, core):
         });
     });
 
+    /* Счётчик на кнопке корзины */
     function updateTrashBadgeCount(count) {
         const btn = document.querySelector('[data-plugin-modal="pluginTrashModal"]');
         if (!btn) return;
@@ -255,12 +306,18 @@ def register(hooks, app, config, core):
                 btn.appendChild(badge);
             }
             badge.textContent = n;
-        } else if (badge) badge.remove();
+        } else if (badge) {
+            badge.remove();
+        }
     }
 
+    /* Автоочистка при старте (раз в час на сервере) */
     setTimeout(function() {
-        var f = window.reestrFetch || fetch;
-        f('/trash_auto_purge', { method: 'POST', body: '{}' }).catch(function() {});
+        var csrf = '';
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta) csrf = meta.getAttribute('content') || '';
+        if (!csrf && window.REESTR_CSRF) csrf = window.REESTR_CSRF;
+        fetch('/trash_auto_purge', { method: 'POST' }).catch(function() {});
     }, 5000);
 })();
 </script>'''})
